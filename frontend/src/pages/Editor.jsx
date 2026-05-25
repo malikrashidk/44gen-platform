@@ -6,8 +6,7 @@ import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
-  Maximize2, Share, BookmarkPlus, Settings, LogOut, ChevronDown,
-  Activity, FileCode, Package
+  Share, LogOut, Settings, Activity, FileCode, BookmarkPlus, Edit
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -31,39 +30,56 @@ export default function Editor() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState('')
-  const [codeContent, setCodeContent] = useState('')
   const [detailsLog, setDetailsLog] = useState([])
-  const [currentJobId, setCurrentJobId] = useState(null)
+  const [fullCode, setFullCode] = useState('')
+
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
-  const eventSourceRef = useRef(null)
-  const codeBufferRef = useRef('')
+  const esRef = useRef(null)
+
+  // For code streaming - use refs to avoid stale closures
+  const codeChunksRef = useRef('')
   const codeMessageIdRef = useRef(null)
+  const codeFlushIntervalRef = useRef(null)
 
   const d = darkMode
-  const bg = d ? '#0f0f0f' : '#f8f8f8'
+  const bg = d ? '#0f0f0f' : '#f5f5f5'
   const surface = d ? '#161616' : '#ffffff'
   const border = d ? '#2a2a2a' : '#e5e5e5'
-  const text = d ? '#ffffff' : '#111111'
+  const text = d ? '#f0f0f0' : '#111111'
   const muted = d ? '#666' : '#999'
-  const subtle = d ? '#1a1a1a' : '#f5f5f5'
-  const inputBg = d ? '#111' : '#fff'
+  const subtle = d ? '#1a1a1a' : '#f0f0f0'
 
   useEffect(() => { fetchProject() }, [projectId])
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => { if (projectId) { loadConversations(); checkActiveBuildJob() } }, [projectId])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  // Flush code buffer to UI every 80ms to avoid too many state updates
+  const startCodeFlush = useCallback(() => {
+    if (codeFlushIntervalRef.current) return
+    codeFlushIntervalRef.current = setInterval(() => {
+      if (codeMessageIdRef.current && codeChunksRef.current !== undefined) {
+        const snapshot = codeChunksRef.current
+        setMessages(prev => prev.map(m =>
+          m.id === codeMessageIdRef.current
+            ? { ...m, content: { ...m.content, code: snapshot } }
+            : m
+        ))
+      }
+    }, 80)
+  }, [])
 
-  // Load conversation history on mount
-  useEffect(() => {
-    if (projectId) loadConversations()
-  }, [projectId])
+  const stopCodeFlush = useCallback(() => {
+    if (codeFlushIntervalRef.current) {
+      clearInterval(codeFlushIntervalRef.current)
+      codeFlushIntervalRef.current = null
+    }
+  }, [])
 
-  // Check for active build job on mount
-  useEffect(() => {
-    if (projectId) checkActiveBuildJob()
-  }, [projectId])
+  useEffect(() => () => {
+    stopCodeFlush()
+    if (esRef.current) esRef.current.close()
+  }, [])
 
   const fetchProject = async () => {
     const { data } = await supabase
@@ -75,24 +91,22 @@ export default function Editor() {
 
   const loadConversations = async () => {
     const { data } = await supabase
-      .from('conversations')
-      .select('*')
+      .from('conversations').select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
+    if (!data?.length) return
 
-    if (!data || data.length === 0) return
-
-    const loaded = data.map(conv => {
-      if (conv.type === 'complete') {
-        try {
-          const content = JSON.parse(conv.content)
-          return { id: conv.id, role: 'assistant', content, type: 'complete' }
-        } catch { return null }
+    const loaded = data.map(c => {
+      if (c.type === 'complete') {
+        try { return { id: c.id, role: 'assistant', content: JSON.parse(c.content), type: 'complete' } }
+        catch { return null }
       }
-      if (conv.type === 'code') {
-        return { id: conv.id, role: 'assistant', content: conv.content, type: 'code_done' }
+      if (c.type === 'code') {
+        setFullCode(c.content)
+        return { id: c.id, role: 'assistant', content: { file: 'src/App.jsx', code: c.content }, type: 'code_done' }
       }
-      return { id: conv.id, role: conv.role, content: conv.content, type: conv.type || 'message' }
+      if (c.type === 'plan_approved') return null
+      return { id: c.id, role: c.role, content: c.content, type: c.type || 'message' }
     }).filter(Boolean)
 
     setMessages(loaded)
@@ -100,107 +114,97 @@ export default function Editor() {
 
   const checkActiveBuildJob = async () => {
     const { data: jobs } = await supabase
-      .from('build_jobs')
-      .select('*')
+      .from('build_jobs').select('*')
       .eq('project_id', projectId)
       .in('status', ['queued', 'building'])
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .order('created_at', { ascending: false }).limit(1)
 
-    if (jobs && jobs.length > 0) {
-      const job = jobs[0]
-      setCurrentJobId(job.id)
+    if (jobs?.length) {
       setStage('building')
-      addMessage('assistant', `Reconnecting to build in progress...`, 'status')
-      connectToStream(job.id)
+      setLoading(true)
+      addMessage('assistant', 'Reconnecting to build...', 'status')
+      connectToStream(jobs[0].id)
     }
   }
 
-  const addMessage = useCallback((role, content, type = 'message') => {
+  const addMessage = (role, content, type = 'message') => {
     const id = Date.now() + Math.random()
     setMessages(prev => [...prev, { role, content, type, id }])
     return id
-  }, [])
-
-  const updateMessage = useCallback((id, updater) => {
-    setMessages(prev => prev.map(m => m.id === id ? { ...m, ...updater(m) } : m))
-  }, [])
+  }
 
   const saveConversation = async (role, content, type = 'message') => {
     await supabase.from('conversations').insert({
-      project_id: projectId,
-      role,
+      project_id: projectId, role,
       content: typeof content === 'string' ? content : JSON.stringify(content),
       type
     })
   }
 
   const connectToStream = useCallback((jobId) => {
-    if (eventSourceRef.current) eventSourceRef.current.close()
-
-    codeBufferRef.current = ''
+    if (esRef.current) esRef.current.close()
+    codeChunksRef.current = ''
     codeMessageIdRef.current = null
 
     const es = new EventSource(`${API}/api/build/stream/${jobId}`)
-    eventSourceRef.current = es
+    esRef.current = es
 
     es.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data)
-        handleStreamEvent(event)
-      } catch {}
+      try { handleStreamEvent(JSON.parse(e.data)) } catch {}
     }
-
     es.onerror = () => {
-      es.close()
+      stopCodeFlush()
       setStage('idle')
       setLoading(false)
     }
   }, [])
 
   const handleStreamEvent = useCallback((event) => {
-    const addDetail = (icon, text, color) => {
-      setDetailsLog(prev => [...prev, { icon, text, color, ts: Date.now() }])
-    }
+    const addDetail = (icon, msg, color) =>
+      setDetailsLog(prev => [...prev, { icon, msg, color, ts: Date.now() }])
 
     switch (event.type) {
       case 'start':
-        addMessage('assistant', event.message, 'status')
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        addMessage('assistant', event.message, 'status_inline')
         addDetail('🚀', event.message, '#7c3aed')
         break
 
       case 'thought':
-        addMessage('assistant', { text: event.text }, 'thought')
-        addDetail('💡', `Thinking...`, '#f59e0b')
+        addMessage('assistant', event.text, 'thought')
+        addDetail('💡', 'AI thinking...', '#f59e0b')
         break
 
-      case 'code_start':
-        addDetail('✏️', `Writing ${event.file}`, '#3b82f6')
-        // Create a streaming code message
-        const codeId = Date.now() + Math.random()
-        codeMessageIdRef.current = codeId
-        codeBufferRef.current = ''
+      case 'code_start': {
+        addDetail('✏️', 'Writing src/App.jsx', '#3b82f6')
+        const id = Date.now() + Math.random()
+        codeMessageIdRef.current = id
+        codeChunksRef.current = ''
         setMessages(prev => [...prev, {
-          id: codeId,
-          role: 'assistant',
-          content: { file: event.file, code: '' },
+          id, role: 'assistant',
+          content: { file: 'src/App.jsx', code: '' },
           type: 'code_stream'
         }])
+        startCodeFlush()
         break
+      }
 
       case 'code_chunk':
-        codeBufferRef.current += event.text
-        if (codeMessageIdRef.current) {
-          setMessages(prev => prev.map(m =>
-            m.id === codeMessageIdRef.current
-              ? { ...m, content: { ...m.content, code: codeBufferRef.current } }
-              : m
-          ))
-        }
-        setCodeContent(prev => prev + event.text)
+        codeChunksRef.current += event.text
+        setFullCode(prev => prev + event.text)
         break
 
       case 'code_end':
+        stopCodeFlush()
+        // Final flush
+        if (codeMessageIdRef.current) {
+          const finalCode = codeChunksRef.current
+          setMessages(prev => prev.map(m =>
+            m.id === codeMessageIdRef.current
+              ? { ...m, content: { ...m.content, code: finalCode }, type: 'code_done' }
+              : m
+          ))
+        }
         codeMessageIdRef.current = null
         addDetail('✅', 'Code generation complete', '#10b981')
         break
@@ -208,10 +212,8 @@ export default function Editor() {
       case 'installing':
         setMessages(prev => {
           const last = prev[prev.length - 1]
-          if (last?.type === 'build_progress') {
-            return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
-          }
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_progress' }]
+          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
+          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
         })
         addDetail('📦', event.message, '#6366f1')
         break
@@ -219,21 +221,17 @@ export default function Editor() {
       case 'building':
         setMessages(prev => {
           const last = prev[prev.length - 1]
-          if (last?.type === 'build_progress') {
-            return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
-          }
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_progress' }]
+          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
+          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
         })
         addDetail('🔨', event.message, '#8b5cf6')
         break
 
       case 'deploying':
         setMessages(prev => {
-          const hasProgress = prev.some(m => m.type === 'build_progress')
-          if (hasProgress) {
-            return prev.map(m => m.type === 'build_progress' ? { ...m, content: event.message } : m)
-          }
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_progress' }]
+          const last = prev[prev.length - 1]
+          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
+          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
         })
         addDetail('🚀', 'Deploying...', '#06b6d4')
         break
@@ -243,6 +241,7 @@ export default function Editor() {
         break
 
       case 'done':
+        stopCodeFlush()
         setPreviewUrl('https://' + event.subdomain + '.44gen.com')
         setPreviewKey(k => k + 1)
         setStage('done')
@@ -250,32 +249,28 @@ export default function Editor() {
         setPlan(null)
         fetchProfile(user.id)
         fetchProject()
-        addDetail('✅', `Live at ${event.subdomain}.44gen.com`, '#10b981')
-        // Remove build progress message and add completion card
+        addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
-          ...prev.filter(m => m.type !== 'build_progress'),
+          ...prev.filter(m => m.type !== 'build_step' && m.type !== 'status_inline'),
           { id: Date.now(), role: 'assistant', content: event, type: 'complete' }
         ])
-        if (eventSourceRef.current) eventSourceRef.current.close()
+        if (esRef.current) esRef.current.close()
         break
 
       case 'error':
+        stopCodeFlush()
         addMessage('assistant', event.message, 'error')
         setStage('idle')
         setLoading(false)
         addDetail('❌', event.message, '#ef4444')
-        if (eventSourceRef.current) eventSourceRef.current.close()
-        break
-
-      default:
+        if (esRef.current) esRef.current.close()
         break
     }
-  }, [user, fetchProfile])
+  }, [user, fetchProfile, startCodeFlush, stopCodeFlush])
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
     if (!prompt.trim() || loading) return
-
     const userPrompt = prompt.trim()
     setPrompt('')
     setLoading(true)
@@ -286,30 +281,27 @@ export default function Editor() {
       setStage('planning')
       addMessage('assistant', 'Analyzing your request...', 'status')
 
-      const planRes = await fetch(`${API}/api/plan`, {
+      const res = await fetch(`${API}/api/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: userPrompt, projectId })
       })
-
-      const planData = await planRes.json()
+      const planData = await res.json()
 
       if (planData.error) {
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
         addMessage('assistant', planData.error, 'error')
-        setStage('idle')
-        setLoading(false)
-        return
+        setStage('idle'); setLoading(false); return
       }
 
       setPlan(planData)
       setStage('awaiting_approval')
-      // Remove status message and add plan
       setMessages(prev => [
         ...prev.filter(m => m.type !== 'status'),
         { id: Date.now(), role: 'assistant', content: planData, type: 'plan' }
       ])
-    } catch (err) {
-      addMessage('assistant', 'Something went wrong. Please try again.', 'error')
+    } catch {
+      addMessage('assistant', 'Something went wrong. Try again.', 'error')
       setStage('idle')
     }
     setLoading(false)
@@ -320,8 +312,8 @@ export default function Editor() {
     setLoading(true)
     setStage('building')
     setDetailsLog([])
-    addMessage('assistant', `Plan approved! Starting build...`, 'status')
-    await saveConversation('assistant', `Plan approved for: ${plan.app_name}`, 'plan_approved')
+    setFullCode('')
+    await saveConversation('assistant', `Building: ${plan.app_name}`, 'plan_approved')
 
     try {
       const res = await fetch(`${API}/api/build`, {
@@ -329,32 +321,24 @@ export default function Editor() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan, projectId, userId: user.id })
       })
-
       const { job_id, error } = await res.json()
 
       if (error) {
         addMessage('assistant', error, 'error')
-        setStage('idle')
-        setLoading(false)
-        return
+        setStage('idle'); setLoading(false); return
       }
 
-      setCurrentJobId(job_id)
-      // Remove status message
-      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      setMessages(prev => prev.filter(m => m.type !== 'plan'))
       connectToStream(job_id)
-
-    } catch (err) {
-      addMessage('assistant', 'Failed to start build. Please try again.', 'error')
-      setStage('idle')
-      setLoading(false)
+    } catch {
+      addMessage('assistant', 'Failed to start build.', 'error')
+      setStage('idle'); setLoading(false)
     }
   }
 
   const handleRejectPlan = () => {
-    setPlan(null)
-    setStage('idle')
-    addMessage('assistant', "Plan cancelled. What would you like to change?", 'message')
+    setPlan(null); setStage('idle')
+    addMessage('assistant', "Plan cancelled. What would you like to change?")
   }
 
   const handleRename = async () => {
@@ -365,84 +349,79 @@ export default function Editor() {
   }
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
   }
 
-  const copyShareLink = () => {
-    if (previewUrl) {
-      navigator.clipboard.writeText(previewUrl)
-      alert('Link copied!')
-    }
-  }
+  const isBuilding = stage === 'building' || stage === 'planning'
 
-  // Render individual messages
+  // ── Render message types ──────────────────────────────
   const renderMessage = (msg) => {
     if (msg.type === 'status') return (
-      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '4px 0' }}>
-        <Loader2 size={13} className="animate-spin" style={{ color: '#7c3aed', flexShrink: 0 }} />
+      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
+        <Loader2 size={13} style={{ color: '#7c3aed', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
+        {msg.content}
+      </div>
+    )
+
+    if (msg.type === 'status_inline') return (
+      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
+        <Loader2 size={13} style={{ color: '#7c3aed', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
         {msg.content}
       </div>
     )
 
     if (msg.type === 'thought') return (
       <div key={msg.id} style={{
-        background: d ? '#1a1500' : '#fffbeb',
-        border: `1px solid ${d ? '#3d2e00' : '#fde68a'}`,
-        borderRadius: 12, padding: '10px 14px', fontSize: 12,
-        color: d ? '#fcd34d' : '#92400e', lineHeight: 1.5,
-        fontStyle: 'italic'
+        background: d ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.08)',
+        border: `1px solid rgba(245,158,11,0.2)`,
+        borderRadius: 10, padding: '8px 12px', fontSize: 12,
+        color: d ? '#fcd34d' : '#92400e', lineHeight: 1.5, fontStyle: 'italic'
       }}>
         <span style={{ marginRight: 6 }}>💡</span>
-        {msg.content.text}
+        <span style={{ opacity: 0.9 }}>{msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content}</span>
       </div>
     )
 
     if (msg.type === 'code_stream' || msg.type === 'code_done') {
-      const code = msg.content?.code || msg.content || ''
-      const lines = code.split('\n').slice(0, 8)
-      const isStreaming = msg.type === 'code_stream'
+      const code = msg.content?.code || ''
+      const lines = code.split('\n').slice(0, 10)
+      const streaming = msg.type === 'code_stream'
       return (
-        <div key={msg.id} style={{
-          background: d ? '#0d1117' : '#f6f8fa',
-          border: `1px solid ${d ? '#30363d' : '#d0d7de'}`,
-          borderRadius: 12, overflow: 'hidden', fontSize: 11
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#161b22' : '#f0f2f4' }}>
-            <FileCode size={12} style={{ color: '#3b82f6' }} />
-            <span style={{ color: muted, fontFamily: 'monospace' }}>src/App.jsx</span>
-            {isStreaming && <Loader2 size={10} className="animate-spin" style={{ color: '#7c3aed', marginLeft: 'auto' }} />}
+        <div key={msg.id} style={{ background: d ? '#0d1117' : '#f6f8fa', border: `1px solid ${d ? '#30363d' : '#d0d7de'}`, borderRadius: 10, overflow: 'hidden', fontSize: 11 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: d ? '#161b22' : '#f0f2f4', borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}` }}>
+            <FileCode size={11} style={{ color: '#3b82f6' }} />
+            <span style={{ color: muted, fontFamily: 'monospace', fontSize: 11 }}>src/App.jsx</span>
+            {streaming && <Loader2 size={10} style={{ color: '#7c3aed', marginLeft: 'auto', animation: 'spin 0.8s linear infinite' }} />}
+            {!streaming && <CheckCircle2 size={10} style={{ color: '#10b981', marginLeft: 'auto' }} />}
           </div>
-          <div style={{ padding: '10px 12px', fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, maxHeight: 160, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 10px', fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.5, maxHeight: 140, overflow: 'hidden' }}>
             {lines.map((line, i) => (
               <div key={i} style={{ whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {line || '\u00a0'}
               </div>
             ))}
-            {code.split('\n').length > 8 && (
-              <div style={{ color: muted, marginTop: 4 }}>... {code.split('\n').length - 8} more lines</div>
+            {code.split('\n').length > 10 && (
+              <div style={{ color: muted, marginTop: 2 }}>
+                +{code.split('\n').length - 10} more lines
+              </div>
             )}
-            {isStreaming && <span style={{ display: 'inline-block', width: 8, height: 14, background: '#7c3aed', animation: 'blink 1s infinite', marginLeft: 2, verticalAlign: 'text-bottom' }} />}
+            {streaming && (
+              <span style={{ display: 'inline-block', width: 7, height: 13, background: '#7c3aed', marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 0.8s step-end infinite' }} />
+            )}
           </div>
         </div>
       )
     }
 
-    if (msg.type === 'build_progress') return (
-      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
-        <Loader2 size={12} className="animate-spin" style={{ color: '#6366f1', flexShrink: 0 }} />
+    if (msg.type === 'build_step') return (
+      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 12, padding: '2px 0' }}>
+        <Loader2 size={11} style={{ color: '#6366f1', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
         {msg.content}
       </div>
     )
 
     if (msg.type === 'error') return (
-      <div key={msg.id} style={{
-        display: 'flex', alignItems: 'flex-start', gap: 8,
-        background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
-        borderRadius: 12, padding: '10px 14px', color: '#f87171', fontSize: 13
-      }}>
+      <div key={msg.id} style={{ display: 'flex', gap: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', color: '#f87171', fontSize: 13 }}>
         <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
         {msg.content}
       </div>
@@ -451,10 +430,10 @@ export default function Editor() {
     if (msg.type === 'plan') {
       const p = msg.content
       return (
-        <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ddd6fe'}`, borderRadius: 16, padding: 16, fontSize: 13 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#7c3aed', fontWeight: 600 }}>
-              <Sparkles size={14} /> Plan Ready
+              <Sparkles size={13} /> Plan Ready
             </div>
             {p.is_complex && (
               <span style={{ fontSize: 11, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)', padding: '2px 8px', borderRadius: 100 }}>
@@ -463,62 +442,61 @@ export default function Editor() {
             )}
           </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <p style={{ fontSize: 11, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Understanding</p>
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Understanding</p>
             <p style={{ color: text, lineHeight: 1.5 }}>{p.understanding}</p>
           </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <p style={{ fontSize: 11, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-              {p.is_complex ? `Phase ${p.current_phase} — Building Now` : 'Steps'}
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              {p.is_complex ? `Phase ${p.current_phase} Steps` : 'Steps'}
             </p>
             {(p.is_complex ? p.phases?.[0]?.steps : p.steps)?.map((step, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4, color: text }}>
-                <ChevronRight size={12} style={{ color: '#7c3aed', marginTop: 2, flexShrink: 0 }} />
-                {step}
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: text, alignItems: 'flex-start' }}>
+                <ChevronRight size={11} style={{ color: '#7c3aed', marginTop: 3, flexShrink: 0 }} />
+                <span style={{ lineHeight: 1.4 }}>{step}</span>
               </div>
             ))}
             {p.is_complex && p.phases?.slice(1).map((ph, i) => (
-              <div key={i} style={{ marginTop: 8 }}>
-                <p style={{ fontSize: 11, color: muted, marginBottom: 2 }}>Phase {i + 2} — {ph.description}</p>
+              <div key={i} style={{ marginTop: 6, color: muted, fontSize: 12 }}>
+                Phase {i + 2}: {ph.description}
               </div>
             ))}
           </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <p style={{ fontSize: 11, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Files</p>
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Files</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {p.files?.map((f, i) => (
-                <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 6, fontFamily: 'monospace' }}>{f}</span>
+                <span key={i} style={{ fontSize: 10, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 7px', borderRadius: 4, fontFamily: 'monospace' }}>{f}</span>
               ))}
             </div>
           </div>
 
           {p.questions?.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={{ fontSize: 11, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Questions</p>
-              {p.questions.map((q, i) => <div key={i} style={{ color: '#f59e0b', fontSize: 13, marginBottom: 2 }}>• {q}</div>)}
+            <div style={{ marginBottom: 10 }}>
+              <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Questions</p>
+              {p.questions.map((q, i) => <div key={i} style={{ color: '#f59e0b', fontSize: 12, marginBottom: 2 }}>• {q}</div>)}
             </div>
           )}
 
           {p.out_of_scope?.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={{ fontSize: 11, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Out of Scope</p>
-              {p.out_of_scope.map((item, i) => <div key={i} style={{ color: muted, fontSize: 13, marginBottom: 2 }}>• {item}</div>)}
+            <div style={{ marginBottom: 10 }}>
+              <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Out of Scope</p>
+              {p.out_of_scope.map((item, i) => <div key={i} style={{ color: muted, fontSize: 12, marginBottom: 2 }}>• {item}</div>)}
             </div>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: `1px solid ${border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: `1px solid ${border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted }}>
-              <Zap size={11} style={{ color: '#7c3aed' }} />
-              Est. {p.estimated_credits} credits
+              <Zap size={11} style={{ color: '#7c3aed' }} /> Est. {p.estimated_credits} credits
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={handleRejectPlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '6px 12px', borderRadius: 8, cursor: 'pointer' }}>
-                <X size={12} /> Cancel
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={handleRejectPlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '5px 10px', borderRadius: 7, cursor: 'pointer' }}>
+                <X size={11} /> Cancel
               </button>
-              <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#7c3aed', border: 'none', padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                <Check size={12} /> Approve & Build
+              <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#7c3aed', border: 'none', padding: '5px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                <Check size={11} /> Approve & Build
               </button>
             </div>
           </div>
@@ -531,42 +509,35 @@ export default function Editor() {
       const s = c.summary
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
-          {/* Result card */}
-          <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 16, padding: 16, marginBottom: 12 }}>
+          <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, padding: 14, marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10b981', fontWeight: 600 }}>
-                <CheckCircle2 size={14} />
-                {s?.title || `Phase ${c.phase} Complete!`}
+                <CheckCircle2 size={14} /> {s?.title || `Phase ${c.phase} Complete!`}
               </div>
-              <BookmarkPlus size={14} style={{ color: muted, cursor: 'pointer' }} />
+              <BookmarkPlus size={13} style={{ color: muted, cursor: 'pointer' }} />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <button
-                onClick={() => setActiveTab('details')}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', color: text, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}
-              >
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setActiveTab('details')}
+                style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: `1px solid ${border}`, background: 'transparent', color: text, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>
                 View details
               </button>
-              <button
-                onClick={() => { setActiveTab('preview'); setPreviewKey(k => k + 1) }}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
-              >
+              <button onClick={() => { setActiveTab('preview'); setPreviewKey(k => k + 1) }}
+                style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                 Preview →
               </button>
             </div>
           </div>
 
-          {/* Summary */}
           {s && (
             <div style={{ color: text, lineHeight: 1.7 }}>
-              <p style={{ marginBottom: 10 }}>{s.description}</p>
+              <p style={{ marginBottom: 10, color: d ? '#ccc' : '#555', fontSize: 13 }}>{s.description}</p>
 
               {s.features?.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 6 }}>What was built:</p>
+                  <p style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>What was built:</p>
                   {s.features.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4, color: d ? '#ccc' : '#444' }}>
-                      <span style={{ color: '#10b981', marginTop: 2 }}>•</span> {f}
+                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: d ? '#ccc' : '#444', fontSize: 13 }}>
+                      <span style={{ color: '#10b981' }}>•</span> {f}
                     </div>
                   ))}
                 </div>
@@ -574,11 +545,11 @@ export default function Editor() {
 
               {s.files_written?.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 6 }}>Files written:</p>
+                  <p style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Files written:</p>
                   {s.files_written.map((f, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                       <FileCode size={11} style={{ color: '#3b82f6' }} />
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: muted }}>{f}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: muted }}>{f}</span>
                     </div>
                   ))}
                 </div>
@@ -587,28 +558,26 @@ export default function Editor() {
               {s.tech?.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
                   {s.tech.map((t, i) => (
-                    <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 6 }}>{t}</span>
+                    <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 5 }}>{t}</span>
                   ))}
                 </div>
               )}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: muted, fontSize: 12, paddingTop: 8, borderTop: `1px solid ${border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, color: muted, fontSize: 12, paddingTop: 8, borderTop: `1px solid ${border}` }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Zap size={11} style={{ color: '#7c3aed' }} /> {c.credits_used} credits
                 </span>
                 <a href={'https://' + c.subdomain + '.44gen.com'} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#7c3aed', textDecoration: 'none' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#7c3aed', textDecoration: 'none', fontSize: 12 }}>
                   <Globe size={11} /> {c.subdomain}.44gen.com <ExternalLink size={10} />
                 </a>
               </div>
 
               {c.total_phases > 1 && c.phase < c.total_phases && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${border}` }}>
-                  <p style={{ color: muted, marginBottom: 8 }}>Ready for Phase {c.phase + 1}? {c.next_phase_description}</p>
-                  <button
-                    onClick={() => setPrompt(`Continue to phase ${c.phase + 1}`)}
-                    style={{ background: '#059669', color: '#fff', border: 'none', padding: '7px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
-                  >
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                  <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>Ready for Phase {c.phase + 1}? {c.next_phase_description}</p>
+                  <button onClick={() => setPrompt(`Continue to phase ${c.phase + 1}`)}
+                    style={{ background: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                     Continue Phase {c.phase + 1} →
                   </button>
                 </div>
@@ -619,12 +588,12 @@ export default function Editor() {
       )
     }
 
-    // Regular message
+    // Regular user/assistant message
     return (
       <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
         <div style={{
-          maxWidth: '85%', borderRadius: 16, padding: '10px 14px', fontSize: 13, lineHeight: 1.5,
-          background: msg.role === 'user' ? '#7c3aed' : (d ? '#1a1a1a' : '#f5f5f5'),
+          maxWidth: '85%', borderRadius: 14, padding: '9px 13px', fontSize: 13, lineHeight: 1.5,
+          background: msg.role === 'user' ? '#7c3aed' : (d ? '#1a1a1a' : '#f0f0f0'),
           color: msg.role === 'user' ? '#fff' : text,
           border: msg.role === 'user' ? 'none' : `1px solid ${border}`
         }}>
@@ -634,125 +603,103 @@ export default function Editor() {
     )
   }
 
-  const isBuilding = stage === 'building' || stage === 'planning'
-
   return (
     <div style={{ height: '100vh', background: bg, color: text, display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans','Inter',sans-serif", overflow: 'hidden' }}>
 
       {/* TOP BAR */}
-      <div style={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0, zIndex: 10 }}>
-
-        {/* Left */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => navigate('/dashboard')} style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 4, borderRadius: 6 }}>
-            <ArrowLeft size={16} />
+      <div style={{ height: 46, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={() => navigate('/dashboard')} style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6 }}>
+            <ArrowLeft size={15} />
           </button>
-          <div style={{ width: 1, height: 16, background: border }} />
+          <div style={{ width: 1, height: 14, background: border }} />
           <div>
             {renaming ? (
-              <input
-                autoFocus
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                onBlur={handleRename}
-                onKeyDown={e => e.key === 'Enter' && handleRename()}
-                style={{ background: subtle, border: `1px solid #7c3aed`, borderRadius: 6, padding: '2px 8px', color: text, fontSize: 13, fontWeight: 500, outline: 'none' }}
-              />
+              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                onBlur={handleRename} onKeyDown={e => e.key === 'Enter' && handleRename()}
+                style={{ background: subtle, border: `1px solid #7c3aed`, borderRadius: 5, padding: '2px 7px', color: text, fontSize: 13, fontWeight: 500, outline: 'none', width: 140 }} />
             ) : (
-              <button
-                onClick={() => setRenaming(true)}
-                style={{ background: 'none', border: 'none', color: text, fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0 }}
-              >
+              <button onClick={() => setRenaming(true)} style={{ background: 'none', border: 'none', color: text, fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0 }}>
                 {project?.name || 'Untitled App'}
               </button>
-            )}
-            {isBuilding && (
-              <span style={{ fontSize: 11, color: muted, marginLeft: 8 }}>Building...</span>
             )}
             {!isBuilding && project?.status === 'deployed' && (
               <span style={{ fontSize: 11, color: muted, marginLeft: 8 }}>Previewing last saved version</span>
             )}
           </div>
           <span style={{
-            fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 100,
-            background: project?.status === 'deployed' ? 'rgba(16,185,129,0.1)' : (d ? '#222' : '#f0f0f0'),
+            fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 100,
+            background: project?.status === 'deployed' ? 'rgba(16,185,129,0.1)' : (d ? '#222' : '#eee'),
             color: project?.status === 'deployed' ? '#10b981' : muted
           }}>
             {project?.status || 'draft'}
           </span>
         </div>
 
-        {/* Right */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {isBuilding && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: muted, padding: '4px 10px', borderRadius: 8, background: subtle, border: `1px solid ${border}` }}>
-              <Loader2 size={11} className="animate-spin" style={{ color: '#7c3aed' }} />
-              Building...
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}` }}>
+              <Loader2 size={10} style={{ color: '#7c3aed', animation: 'spin 0.8s linear infinite' }} /> Building...
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '4px 10px', borderRadius: 8, background: subtle, border: `1px solid ${border}` }}>
-            <Zap size={11} style={{ color: '#7c3aed' }} />
-            {profile?.credits ?? 0}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}` }}>
+            <Zap size={11} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0}
           </div>
           {previewUrl && (
-            <button onClick={copyShareLink} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '4px 10px', borderRadius: 8, background: subtle, border: `1px solid ${border}`, cursor: 'pointer' }}>
-              <Share size={12} /> Share
+            <button onClick={() => { navigator.clipboard.writeText(previewUrl) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}`, cursor: 'pointer' }}>
+              <Share size={11} /> Share
             </button>
           )}
-          <button onClick={() => setDarkMode(!darkMode)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
+          <button onClick={() => setDarkMode(!darkMode)}
+            style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
           {previewUrl && (
-            <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#fff', background: '#7c3aed', border: 'none', padding: '5px 12px', borderRadius: 8, textDecoration: 'none' }}>
-              <Globe size={12} /> Publish
+            <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#fff', background: '#7c3aed', padding: '4px 12px', borderRadius: 7, textDecoration: 'none' }}>
+              <Globe size={11} /> Publish
             </a>
           )}
-
-          {/* User menu */}
           <div style={{ position: 'relative' }}>
-            <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              style={{ width: 30, height: 30, borderRadius: '50%', background: '#7c3aed', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
+            <button onClick={() => setShowUserMenu(!showUserMenu)}
+              style={{ width: 28, height: 28, borderRadius: '50%', background: '#7c3aed', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </button>
             {showUserMenu && (
-              <div style={{ position: 'absolute', right: 0, top: 38, width: 220, background: surface, border: `1px solid ${border}`, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.3)', zIndex: 100, overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${border}` }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: text, margin: 0 }}>{profile?.full_name || user?.email}</p>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted }}>
-                      <Zap size={11} style={{ color: '#7c3aed' }} />
-                      {profile?.credits ?? 0} credits
-                    </div>
-                    <span style={{ fontSize: 11, background: '#7c3aed20', color: '#7c3aed', padding: '2px 8px', borderRadius: 100, fontWeight: 600 }}>
-                      {profile?.plan || 'FREE'}
+              <div onClick={() => setShowUserMenu(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
+            )}
+            {showUserMenu && (
+              <div style={{ position: 'absolute', right: 0, top: 34, width: 210, background: surface, border: `1px solid ${border}`, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 100, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 13px', borderBottom: `1px solid ${border}` }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: text, margin: 0 }}>{profile?.full_name || user?.email}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: muted, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Zap size={10} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0} credits
+                    </span>
+                    <span style={{ fontSize: 10, background: '#7c3aed20', color: '#7c3aed', padding: '1px 7px', borderRadius: 100, fontWeight: 600 }}>
+                      {(profile?.plan || 'FREE').toUpperCase()}
                     </span>
                   </div>
                 </div>
                 {[
-                  { icon: <ArrowLeft size={13} />, label: 'Go to Dashboard', action: () => navigate('/dashboard') },
-                  { icon: <Edit size={13} />, label: 'Rename project', action: () => { setRenaming(true); setShowUserMenu(false) } },
-                  { icon: <Settings size={13} />, label: 'Settings', action: () => {} },
-                  { icon: <Sun size={13} />, label: darkMode ? 'Light mode' : 'Dark mode', action: () => setDarkMode(!darkMode) },
+                  { icon: <ArrowLeft size={12} />, label: 'Dashboard', action: () => navigate('/dashboard') },
+                  { icon: <Edit size={12} />, label: 'Rename project', action: () => { setRenaming(true); setShowUserMenu(false) } },
+                  { icon: darkMode ? <Sun size={12} /> : <Moon size={12} />, label: darkMode ? 'Light mode' : 'Dark mode', action: () => { setDarkMode(!darkMode); setShowUserMenu(false) } },
+                  { icon: <Settings size={12} />, label: 'Settings', action: () => setShowUserMenu(false) },
                 ].map((item, i) => (
-                  <button
-                    key={i}
-                    onClick={item.action}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'none', border: 'none', color: text, fontSize: 13, cursor: 'pointer', textAlign: 'left' }}
+                  <button key={i} onClick={item.action}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 13px', background: 'none', border: 'none', color: text, fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
                     onMouseEnter={e => e.currentTarget.style.background = subtle}
-                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                  >
-                    <span style={{ color: muted }}>{item.icon}</span>
-                    {item.label}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                    <span style={{ color: muted }}>{item.icon}</span>{item.label}
                   </button>
                 ))}
                 <div style={{ borderTop: `1px solid ${border}` }}>
-                  <button
-                    onClick={() => { signOut(); navigate('/') }}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'none', border: 'none', color: '#ef4444', fontSize: 13, cursor: 'pointer' }}
-                  >
-                    <LogOut size={13} /> Sign out
+                  <button onClick={() => { signOut(); navigate('/') }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 13px', background: 'none', border: 'none', color: '#ef4444', fontSize: 12, cursor: 'pointer' }}>
+                    <LogOut size={12} /> Sign out
                   </button>
                 </div>
               </div>
@@ -761,32 +708,27 @@ export default function Editor() {
         </div>
       </div>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* LEFT — Chat */}
-        <div style={{ width: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}` }}>
-
-          {/* Messages */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}` }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {messages.length === 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 16px' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                  <Sparkles size={20} style={{ color: '#7c3aed' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 12px' }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                  <Sparkles size={18} style={{ color: '#7c3aed' }} />
                 </div>
-                <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: text }}>What would you like to build?</p>
-                <p style={{ fontSize: 12, color: muted, lineHeight: 1.6, marginBottom: 20 }}>
-                  Describe your app and I'll create a plan for your approval before writing any code.
+                <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 5, color: text }}>What would you like to build?</p>
+                <p style={{ fontSize: 12, color: muted, lineHeight: 1.5, marginBottom: 16 }}>
+                  Describe your app and I'll create a detailed plan for your approval before writing any code.
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%' }}>
                   {['A todo app with categories', 'A landing page for my SaaS', 'A dashboard with charts'].map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setPrompt(s)}
-                      style={{ textAlign: 'left', fontSize: 12, background: subtle, border: `1px solid ${border}`, borderRadius: 10, padding: '8px 12px', color: muted, cursor: 'pointer' }}
+                    <button key={i} onClick={() => setPrompt(s)}
+                      style={{ textAlign: 'left', fontSize: 12, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '7px 10px', color: muted, cursor: 'pointer' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed44'; e.currentTarget.style.color = text }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}
-                    >
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}>
                       {s}
                     </button>
                   ))}
@@ -798,14 +740,9 @@ export default function Editor() {
           </div>
 
           {/* Input */}
-          <div style={{ padding: 12, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, background: inputBg, border: `1px solid ${border}`, borderRadius: 14, padding: '8px 10px', transition: 'border-color 0.15s' }}
-              onFocus={e => e.currentTarget.style.borderColor = '#7c3aed50'}
-              onBlur={e => e.currentTarget.style.borderColor = border}
-            >
-              <textarea
-                ref={textareaRef}
-                value={prompt}
+          <div style={{ padding: 10, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, background: d ? '#111' : '#fff', border: `1px solid ${border}`, borderRadius: 12, padding: '7px 9px' }}>
+              <textarea ref={textareaRef} value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
@@ -815,140 +752,122 @@ export default function Editor() {
                 }
                 disabled={loading || stage === 'awaiting_approval' || stage === 'building'}
                 rows={1}
-                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, maxHeight: 120, fontFamily: 'inherit' }}
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, maxHeight: 100, fontFamily: 'inherit' }}
               />
-              <button
-                onClick={handleSubmit}
+              <button onClick={handleSubmit}
                 disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'building'}
-                style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, background: prompt.trim() && stage === 'idle' ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && stage === 'idle' ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s' }}
-              >
-                {loading && stage === 'planning' ? <Loader2 size={13} className="animate-spin" style={{ color: '#fff' }} /> : <Send size={13} style={{ color: prompt.trim() && stage === 'idle' ? '#fff' : muted }} />}
+                style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && stage === 'idle' ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && stage === 'idle' ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {loading && stage === 'planning'
+                  ? <Loader2 size={12} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
+                  : <Send size={12} style={{ color: prompt.trim() && stage === 'idle' ? '#fff' : muted }} />}
               </button>
             </div>
-            <p style={{ fontSize: 11, color: d ? '#444' : '#ccc', textAlign: 'center', marginTop: 6 }}>
+            <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
               Plan ~0.5 credits · Build cost shown in plan
             </p>
           </div>
         </div>
 
-        {/* RIGHT — Preview/Code/Details */}
+        {/* RIGHT — Preview / Code / Details */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-          {/* Right Tab Bar */}
-          <div style={{ height: 40, display: 'flex', alignItems: 'center', gap: 4, padding: '0 12px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0 }}>
+          <div style={{ height: 38, display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0 }}>
             {[
               { id: 'preview', icon: <Eye size={12} />, label: 'Preview' },
               { id: 'code', icon: <Code size={12} />, label: 'Code' },
-              { id: 'details', icon: <Activity size={12} />, label: 'Details' },
+              { id: 'details', icon: <Activity size={12} />, label: 'Details', badge: detailsLog.length },
             ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8,
-                  fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+                  display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 6,
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
                   background: activeTab === tab.id ? 'rgba(124,58,237,0.1)' : 'transparent',
                   color: activeTab === tab.id ? '#7c3aed' : muted
-                }}
-              >
+                }}>
                 {tab.icon} {tab.label}
-                {tab.id === 'details' && detailsLog.length > 0 && (
-                  <span style={{ fontSize: 10, background: '#7c3aed', color: '#fff', borderRadius: 100, padding: '0 5px', minWidth: 16, textAlign: 'center' }}>
-                    {detailsLog.length}
-                  </span>
+                {tab.badge > 0 && (
+                  <span style={{ fontSize: 10, background: '#7c3aed', color: '#fff', borderRadius: 100, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{tab.badge}</span>
                 )}
               </button>
             ))}
-
             {previewUrl && activeTab === 'preview' && (
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: muted, fontFamily: 'monospace' }}>{previewUrl.replace('https://', '')}</span>
+                <span style={{ fontSize: 10, color: muted, fontFamily: 'monospace' }}>{previewUrl.replace('https://', '')}</span>
                 <button onClick={() => setPreviewDevice(d => d === 'desktop' ? 'mobile' : 'desktop')}
                   style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
-                  {previewDevice === 'desktop' ? <Smartphone size={13} /> : <Monitor size={13} />}
+                  {previewDevice === 'desktop' ? <Smartphone size={12} /> : <Monitor size={12} />}
                 </button>
                 <button onClick={() => setPreviewKey(k => k + 1)}
                   style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
-                  <RefreshCw size={13} />
+                  <RefreshCw size={12} />
                 </button>
-                <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-                  style={{ color: muted, display: 'flex' }}>
-                  <ExternalLink size={13} />
+                <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ color: muted, display: 'flex' }}>
+                  <ExternalLink size={12} />
                 </a>
               </div>
             )}
           </div>
 
-          {/* Preview Tab */}
           {activeTab === 'preview' && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#e8e8e8', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#e0e0e0', overflow: 'hidden' }}>
               {previewUrl ? (
                 <div style={{
                   width: previewDevice === 'mobile' ? 390 : '100%',
                   height: previewDevice === 'mobile' ? 844 : '100%',
                   maxHeight: '100%',
-                  borderRadius: previewDevice === 'mobile' ? 16 : 0,
+                  borderRadius: previewDevice === 'mobile' ? 14 : 0,
                   overflow: 'hidden',
                   boxShadow: previewDevice === 'mobile' ? '0 20px 60px rgba(0,0,0,0.5)' : 'none'
                 }}>
-                  <iframe
-                    key={previewKey}
-                    src={previewUrl}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
-                    title="App Preview"
-                  />
+                  <iframe key={previewKey} src={previewUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
                 </div>
               ) : (
                 <div style={{ textAlign: 'center', color: muted }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 16, background: surface, border: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                    <Eye size={22} style={{ opacity: 0.3 }} />
+                  <div style={{ width: 52, height: 52, borderRadius: 14, background: surface, border: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
+                    <Eye size={20} style={{ opacity: 0.3 }} />
                   </div>
-                  <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>No preview yet</p>
-                  <p style={{ fontSize: 12, opacity: 0.6 }}>Build your app to see it here</p>
+                  <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 3 }}>No preview yet</p>
+                  <p style={{ fontSize: 12, opacity: 0.5 }}>Build your app to see it here</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* Code Tab */}
           {activeTab === 'code' && (
-            <div style={{ flex: 1, overflow: 'auto', background: d ? '#0d1117' : '#f6f8fa', padding: 0 }}>
-              {codeContent ? (
-                <pre style={{ margin: 0, padding: 20, fontSize: 12, fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {codeContent}
+            <div style={{ flex: 1, overflow: 'auto', background: d ? '#0d1117' : '#f6f8fa' }}>
+              {fullCode ? (
+                <pre style={{ margin: 0, padding: 16, fontSize: 11, fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {fullCode}
                 </pre>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: muted }}>
-                  <Code size={24} style={{ opacity: 0.3, marginBottom: 8 }} />
-                  <p style={{ fontSize: 13 }}>No code generated yet</p>
+                  <Code size={22} style={{ opacity: 0.3, marginBottom: 6 }} />
+                  <p style={{ fontSize: 12 }}>No code yet</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* Details Tab */}
           {activeTab === 'details' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
               {detailsLog.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: muted }}>
-                  <Activity size={24} style={{ opacity: 0.3, marginBottom: 8 }} />
-                  <p style={{ fontSize: 13 }}>Activity log will appear here during build</p>
+                  <Activity size={22} style={{ opacity: 0.3, marginBottom: 6 }} />
+                  <p style={{ fontSize: 12 }}>Activity log appears here during build</p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {detailsLog.map((item, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13 }}>
-                      <span style={{ fontSize: 16, flexShrink: 0 }}>{item.icon}</span>
-                      <span style={{ color: item.color || text, lineHeight: 1.5 }}>{item.text}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: muted, flexShrink: 0 }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12 }}>
+                      <span style={{ flexShrink: 0 }}>{item.icon}</span>
+                      <span style={{ color: item.color || text, flex: 1, lineHeight: 1.4 }}>{item.msg}</span>
+                      <span style={{ color: muted, fontSize: 10, flexShrink: 0 }}>
                         {new Date(item.ts).toLocaleTimeString()}
                       </span>
                     </div>
                   ))}
                   {isBuilding && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 12 }}>
-                      <Loader2 size={12} className="animate-spin" style={{ color: '#7c3aed' }} />
-                      Working...
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: muted, fontSize: 11 }}>
+                      <Loader2 size={10} style={{ animation: 'spin 0.8s linear infinite', color: '#7c3aed' }} /> Working...
                     </div>
                   )}
                 </div>
@@ -959,11 +878,10 @@ export default function Editor() {
       </div>
 
       <style>{`
-        @keyframes blink { 0%,100%{opacity:1}50%{opacity:0} }
-        @keyframes spin { to{transform:rotate(360deg)} }
-        .animate-spin { animation: spin 0.8s linear infinite }
-        * { box-sizing: border-box }
-        textarea { overflow-y: hidden }
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        * { box-sizing: border-box; margin: 0; padding: 0 }
+        textarea { overflow-y: hidden; }
         ::-webkit-scrollbar { width: 4px; height: 4px }
         ::-webkit-scrollbar-track { background: transparent }
         ::-webkit-scrollbar-thumb { background: ${d ? '#333' : '#ddd'}; border-radius: 2px }
