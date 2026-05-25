@@ -147,8 +147,15 @@ export default function Dashboard() {
         </div>
 
         {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-            <div style={{ width: 22, height: 22, border: '2px solid #7c3aed', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minHeight: 150 }}>
+                <div style={{ height: 14, background: subtle, borderRadius: 4, marginBottom: 10, width: '55%', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                <div style={{ height: 11, background: subtle, borderRadius: 4, marginBottom: 6, animation: 'pulse 1.5s ease-in-out infinite' }} />
+                <div style={{ height: 11, background: subtle, borderRadius: 4, width: '75%', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                <div style={{ height: 20, background: subtle, borderRadius: 4, marginTop: 24, width: '30%', animation: 'pulse 1.5s ease-in-out infinite' }} />
+              </div>
+            ))}
           </div>
         ) : projects.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
@@ -219,7 +226,10 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+      `}</style>
     </div>
   )
 }

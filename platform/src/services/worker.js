@@ -10,6 +10,11 @@ const supabase = createClient(
 // In-memory store per job
 const jobStore = new Map()
 
+// Concurrency control — max 3 simultaneous builds
+const MAX_CONCURRENT = 3
+let activeBuilds = 0
+const pendingQueue = [] // jobIds waiting for a slot
+
 function getStore(jobId) {
   if (!jobStore.has(jobId)) {
     jobStore.set(jobId, { listeners: new Set(), history: [], persistTimer: null })
@@ -24,8 +29,6 @@ function emitJobEvent(jobId, event) {
   store.listeners.forEach(fn => {
     try { fn(eventWithTs) } catch {}
   })
-  // Debounced DB persist — write the full history at most every 2s,
-  // which avoids read-modify-write races from concurrent event emissions
   schedulePersist(jobId, store)
 }
 
@@ -42,7 +45,6 @@ function schedulePersist(jobId, store) {
   }, 2000)
 }
 
-// Force-flush any pending persist immediately (call at job end)
 async function flushPersist(jobId) {
   const store = jobStore.get(jobId)
   if (!store) return
@@ -50,10 +52,9 @@ async function flushPersist(jobId) {
     clearTimeout(store.persistTimer)
     store.persistTimer = null
   }
-  const snapshot = [...store.history]
   try {
     await supabase.from('build_jobs')
-      .update({ progress: snapshot, updated_at: new Date().toISOString() })
+      .update({ progress: [...store.history], updated_at: new Date().toISOString() })
       .eq('id', jobId)
   } catch {}
 }
@@ -61,14 +62,11 @@ async function flushPersist(jobId) {
 function subscribeToJob(jobId, listener) {
   const store = getStore(jobId)
   store.listeners.add(listener)
-
-  let cleanupTimer = null
   return () => {
     store.listeners.delete(listener)
     if (store.listeners.size === 0) {
-      cleanupTimer = setTimeout(() => {
+      setTimeout(() => {
         const s = jobStore.get(jobId)
-        // Only delete if still empty (no new listeners arrived)
         if (s && s.listeners.size === 0) jobStore.delete(jobId)
       }, 10 * 60 * 1000)
     }
@@ -79,12 +77,28 @@ function getJobHistory(jobId) {
   return jobStore.get(jobId)?.history || []
 }
 
+// Called by the route — handles queueing if at capacity
+async function processJob(jobId) {
+  if (activeBuilds >= MAX_CONCURRENT) {
+    pendingQueue.push(jobId)
+    emitJobEvent(jobId, { type: 'queued', message: `Build queued — waiting for a slot (${pendingQueue.length} ahead)...` })
+    return
+  }
+  activeBuilds++
+  try {
+    await runJob(jobId)
+  } finally {
+    activeBuilds--
+    const next = pendingQueue.shift()
+    if (next) processJob(next)
+  }
+}
+
 const JOB_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
-async function processJob(jobId) {
+async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
 
-  // Hard timeout — mark job failed if it runs too long
   const timeoutHandle = setTimeout(async () => {
     await supabase.from('build_jobs')
       .update({ status: 'failed', error: 'Job timed out after 10 minutes' })
@@ -100,7 +114,6 @@ async function processJob(jobId) {
     await supabase.from('build_jobs')
       .update({ status: 'building' }).eq('id', jobId)
 
-    // Re-check credits at build time (user might have been refunded/spent since queue)
     const { data: profile } = await supabase
       .from('profiles').select('credits').eq('id', job.user_id).single()
     if (!profile || profile.credits < 0.5) throw new Error('Insufficient credits')
@@ -117,7 +130,6 @@ async function processJob(jobId) {
 
     emit('code_end', { message: 'Code generation complete' })
 
-    // Save code — delete first to avoid duplicate rows (requires no unique constraint)
     await supabase.from('project_files')
       .delete()
       .eq('project_id', job.project_id)
@@ -136,7 +148,6 @@ async function processJob(jobId) {
       type: 'code'
     })
 
-    // Build and deploy
     const subdomain = await buildAndDeploy(
       job.project_id,
       code,
@@ -148,7 +159,6 @@ async function processJob(jobId) {
     emit('summarizing', { message: 'Generating summary...' })
     const summary = await generateSummary(job.plan, ['src/App.jsx'])
 
-    // Update project
     await supabase.from('projects').update({
       name: job.plan.app_name || 'My App',
       prompt: job.plan.understanding,
@@ -156,7 +166,6 @@ async function processJob(jobId) {
       subdomain
     }).eq('id', job.project_id)
 
-    // Atomic credit deduction — WHERE credits >= amount prevents going negative
     const { data: updatedProfile } = await supabase
       .from('profiles')
       .update({ credits: profile.credits - credits_used })
@@ -175,7 +184,7 @@ async function processJob(jobId) {
       action: 'build',
       credits_before: profile.credits,
       credits_used,
-      credits_after: (updatedProfile?.credits ?? profile.credits - credits_used),
+      credits_after: updatedProfile?.credits ?? profile.credits - credits_used,
       tokens_used,
       description: `Phase ${job.plan.current_phase}/${job.plan.total_phases}`
     })
@@ -184,9 +193,11 @@ async function processJob(jobId) {
       type: 'complete', subdomain, credits_used,
       phase: job.plan.current_phase,
       total_phases: job.plan.total_phases,
-      next_phase_description: job.plan.phases?.[1]?.description,
+      next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
+      plan: job.plan, // stored so frontend can continue to next phase without re-planning
       summary
     }
+
     await supabase.from('conversations').insert({
       project_id: job.project_id,
       role: 'assistant',
@@ -203,13 +214,7 @@ async function processJob(jobId) {
     clearTimeout(timeoutHandle)
     await flushPersist(jobId)
 
-    emit('done', {
-      subdomain, credits_used,
-      phase: job.plan.current_phase,
-      total_phases: job.plan.total_phases,
-      next_phase_description: job.plan.phases?.[1]?.description,
-      summary
-    })
+    emit('done', completionData)
 
   } catch (err) {
     clearTimeout(timeoutHandle)
