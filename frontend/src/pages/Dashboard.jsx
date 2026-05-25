@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Plus, Zap, Globe, Clock, Trash2, ExternalLink, LogOut } from 'lucide-react'
+import { Plus, Zap, Clock, Trash2, ExternalLink, LogOut, Sun, Moon, Globe, Sparkles } from 'lucide-react'
 
 export default function Dashboard() {
   const { user, profile, signOut, fetchProfile } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [darkMode, setDarkMode] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -18,9 +19,7 @@ export default function Dashboard() {
 
   const fetchProjects = async () => {
     const { data } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false })
+      .from('projects').select('*').order('created_at', { ascending: false })
     setProjects(data || [])
     setLoading(false)
   }
@@ -29,18 +28,9 @@ export default function Dashboard() {
     setCreating(true)
     const { data, error } = await supabase
       .from('projects')
-      .insert({
-        user_id: user.id,
-        name: 'Untitled App',
-        prompt: '',
-        status: 'draft'
-      })
-      .select()
-      .single()
-
-    if (!error && data) {
-      navigate(`/editor/${data.id}`)
-    }
+      .insert({ user_id: user.id, name: 'Untitled App', prompt: '', status: 'draft' })
+      .select().single()
+    if (!error && data) navigate(`/editor/${data.id}`)
     setCreating(false)
   }
 
@@ -51,155 +41,191 @@ export default function Dashboard() {
     setProjects(projects.filter(p => p.id !== id))
   }
 
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'deployed': return 'text-green-400 bg-green-400/10'
-      case 'building': return 'text-yellow-400 bg-yellow-400/10'
-      default: return 'text-gray-400 bg-gray-400/10'
-    }
-  }
-
   const handleSignOut = async () => {
     await signOut()
     navigate('/')
   }
 
+  const d = darkMode
+  const bg = d ? '#0f0f0f' : '#f8f8f8'
+  const surface = d ? '#161616' : '#ffffff'
+  const border = d ? '#2a2a2a' : '#e5e5e5'
+  const text = d ? '#ffffff' : '#111111'
+  const muted = d ? '#666' : '#999'
+  const subtle = d ? '#1a1a1a' : '#f5f5f5'
+
+  const statusStyle = (status) => {
+    if (status === 'deployed') return { bg: 'rgba(16,185,129,0.1)', color: '#10b981' }
+    if (status === 'building') return { bg: 'rgba(245,158,11,0.1)', color: '#f59e0b' }
+    return { bg: d ? '#222' : '#f0f0f0', color: muted }
+  }
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: "'DM Sans','Inter',sans-serif" }}>
+
       {/* Navbar */}
-      <nav className="border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="text-xl font-bold">
-            44<span className="text-purple-500">gen</span>
+      <nav style={{ borderBottom: `1px solid ${border}`, background: surface }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontWeight: 700, fontSize: 18, letterSpacing: '-0.5px' }}>
+            44<span style={{ color: '#7c3aed' }}>gen</span>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Credits */}
-            <div className="flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
-              <Zap size={14} className="text-purple-400" />
-              <span className="text-sm text-white font-medium">
-                {profile?.credits ?? 0} credits
-              </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: subtle, border: `1px solid ${border}`, borderRadius: 10, padding: '6px 12px', fontSize: 13 }}>
+              <Zap size={12} color="#7c3aed" />
+              <span style={{ fontWeight: 500 }}>{profile?.credits ?? 0}</span>
+              <span style={{ color: muted }}>credits</span>
             </div>
-            {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-sm font-medium">
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: '#fff' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </div>
             <button
-              onClick={handleSignOut}
-              className="text-gray-400 hover:text-white transition"
+              onClick={() => setDarkMode(!darkMode)}
+              style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}
             >
-              <LogOut size={18} />
+              {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
+            <button
+              onClick={handleSignOut}
+              style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}
+            >
+              <LogOut size={14} />
             </button>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
+
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
           <div>
-            <h1 className="text-2xl font-bold">My Projects</h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', margin: 0 }}>Projects</h1>
+            <p style={{ color: muted, fontSize: 13, marginTop: 4 }}>
               {projects.length} project{projects.length !== 1 ? 's' : ''}
             </p>
           </div>
           <button
             onClick={createProject}
             disabled={creating}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-medium px-4 py-2.5 rounded-xl transition"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: '#7c3aed', color: '#fff', border: 'none',
+              padding: '8px 16px', borderRadius: 10, fontSize: 13,
+              fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer',
+              opacity: creating ? 0.6 : 1
+            }}
           >
-            <Plus size={18} />
+            <Plus size={15} />
             {creating ? 'Creating...' : 'New Project'}
           </button>
         </div>
 
-        {/* Projects Grid */}
+        {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+            <div style={{ width: 24, height: 24, border: '2px solid #7c3aed', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           </div>
         ) : projects.length === 0 ? (
-          /* Empty State */
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-gray-900 border border-gray-800 rounded-2xl flex items-center justify-center mb-4">
-              <Plus size={24} className="text-gray-600" />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, background: subtle, border: `1px solid ${border}`, borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <Sparkles size={22} color="#7c3aed" />
             </div>
-            <h3 className="text-lg font-medium mb-2">No projects yet</h3>
-            <p className="text-gray-400 text-sm mb-6">
-              Create your first app with AI
-            </p>
+            <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 8px' }}>No projects yet</h3>
+            <p style={{ color: muted, fontSize: 13, marginBottom: 20 }}>Build your first AI-powered app</p>
             <button
               onClick={createProject}
-              className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-3 rounded-xl transition"
+              style={{ background: '#7c3aed', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               Create your first app →
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+
             {/* New Project Card */}
             <button
               onClick={createProject}
               disabled={creating}
-              className="border-2 border-dashed border-gray-800 hover:border-purple-500/50 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 text-gray-500 hover:text-purple-400 transition group min-h-[180px]"
+              style={{
+                border: `2px dashed ${border}`, background: 'transparent',
+                borderRadius: 16, padding: 24, minHeight: 160,
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                justifyContent: 'center', gap: 10, cursor: 'pointer',
+                color: muted, transition: 'all 0.15s'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed66'; e.currentTarget.style.color = '#7c3aed' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}
             >
-              <div className="w-10 h-10 rounded-xl bg-gray-900 group-hover:bg-purple-500/10 flex items-center justify-center transition">
-                <Plus size={20} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={18} />
               </div>
-              <span className="text-sm font-medium">New Project</span>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>New Project</span>
             </button>
 
             {/* Project Cards */}
-            {projects.map(project => (
-              <div
-                key={project.id}
-                onClick={() => navigate(`/editor/${project.id}`)}
-                className="bg-gray-900 border border-gray-800 hover:border-purple-500/50 rounded-2xl p-6 cursor-pointer transition group min-h-[180px] flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-white group-hover:text-purple-300 transition">
-                      {project.name}
-                    </h3>
-                    <button
-                      onClick={(e) => deleteProject(project.id, e)}
-                      className="text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                  <p className="text-gray-500 text-sm line-clamp-2">
-                    {project.prompt || 'No description yet'}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between mt-4">
-                  <span className={`text-xs px-2 py-1 rounded-lg font-medium ${getStatusColor(project.status)}`}>
-                    {project.status}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    {project.subdomain && (
-                      <a
-                        href={"https://" + project.subdomain + ".44gen.com"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        className="text-gray-500 hover:text-purple-400 transition"
+            {projects.map(project => {
+              const s = statusStyle(project.status)
+              return (
+                <div
+                  key={project.id}
+                  onClick={() => navigate(`/editor/${project.id}`)}
+                  style={{
+                    background: surface, border: `1px solid ${border}`,
+                    borderRadius: 16, padding: 20, minHeight: 160,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed44' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = border }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, letterSpacing: '-0.2px' }}>{project.name}</h3>
+                      <button
+                        onClick={(e) => deleteProject(project.id, e)}
+                        style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', padding: 2, borderRadius: 6, display: 'flex' }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={e => e.currentTarget.style.color = muted}
                       >
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                    <div className="flex items-center gap-1 text-gray-500 text-xs">
-                      <Clock size={12} />
-                      {new Date(project.created_at).toLocaleDateString()}
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <p style={{ color: muted, fontSize: 12, margin: 0, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {project.prompt || 'No description yet'}
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, background: s.bg, color: s.color, padding: '3px 8px', borderRadius: 6 }}>
+                      {project.status}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {project.subdomain && (
+                        <a
+                          href={'https://' + project.subdomain + '.44gen.com'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{ color: muted, display: 'flex' }}
+                          onMouseEnter={e => e.currentTarget.style.color = '#7c3aed'}
+                          onMouseLeave={e => e.currentTarget.style.color = muted}
+                        >
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: muted, fontSize: 11 }}>
+                        <Clock size={11} />
+                        {new Date(project.created_at).toLocaleDateString()}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }
