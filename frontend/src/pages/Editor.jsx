@@ -91,12 +91,16 @@ export default function Editor() {
     addMessage('assistant', `✅ Plan approved! Building Phase ${plan.current_phase}...`, 'status')
 
     try {
+      const buildController = new AbortController()
+      const buildTimeout = setTimeout(() => buildController.abort(), 300000)
       const buildRes = await fetch(`${import.meta.env.VITE_API_URL}/api/build`, {
+        signal: buildController.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan, projectId, userId: user.id })
       })
 
+      clearTimeout(buildTimeout)
       const buildData = await buildRes.json()
 
       if (buildData.error) {

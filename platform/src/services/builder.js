@@ -3,31 +3,41 @@ const path = require('path')
 const { execSync } = require('child_process')
 
 const USERS_DIR = '/var/www/44gen/users'
-const TEMPLATE_DIR = '/var/www/44gen/platform/template'
 
 async function buildAndDeploy(projectId, code) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
 
-  // Create project directory
-  fs.mkdirSync(projectDir, { recursive: true })
+  console.log(`[Builder] Starting build for ${subdomain}`)
 
-  // Create minimal Vite + React structure
+  // Clean existing directory
+  if (fs.existsSync(projectDir)) {
+    fs.rmSync(projectDir, { recursive: true, force: true })
+  }
+
+  // Create fresh directory
   fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
+  console.log(`[Builder] Created directory: ${projectDir}`)
 
-  // Write package.json
+  // Write package.json with latest versions
   fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
     name: subdomain,
     version: '1.0.0',
     type: 'module',
     scripts: { build: 'vite build' },
-    dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
+    dependencies: {
+      'react': '^18.2.0',
+      'react-dom': '^18.2.0',
+      'react-router-dom': '^6.8.0',
+      'lucide-react': 'latest',
+      'recharts': '^3.0.0',
+      'axios': '^1.6.0',
+      'date-fns': '^3.0.0',
+      'clsx': '^2.0.0'
+    },
     devDependencies: {
       '@vitejs/plugin-react': '^4.0.0',
-      'vite': '^5.0.0',
-      'tailwindcss': '^3.4.0',
-      'autoprefixer': '^10.4.0',
-      'postcss': '^8.4.0'
+      'vite': '^5.0.0'
     }
   }, null, 2))
 
@@ -67,20 +77,35 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
   // Write generated App.jsx
   fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), code)
+  console.log(`[Builder] Files written`)
 
-  // Install dependencies and build
-  execSync('npm install --legacy-peer-deps', {
-    cwd: projectDir,
-    timeout: 120000,
-    stdio: 'pipe'
-  })
+  // Install dependencies
+  try {
+    console.log(`[Builder] Installing dependencies...`)
+    const installOutput = execSync('npm install --legacy-peer-deps', {
+      cwd: projectDir,
+      timeout: 180000
+    })
+    console.log(`[Builder] Install done`)
+  } catch (err) {
+    console.error(`[Builder] Install failed: ${err.stderr?.toString()}`)
+    throw new Error('npm install failed: ' + err.stderr?.toString())
+  }
 
-  execSync('npm run build', {
-    cwd: projectDir,
-    timeout: 120000,
-    stdio: 'pipe'
-  })
+  // Build
+  try {
+    console.log(`[Builder] Building...`)
+    execSync('npm run build', {
+      cwd: projectDir,
+      timeout: 180000
+    })
+    console.log(`[Builder] Build successful!`)
+  } catch (err) {
+    console.error(`[Builder] Build failed: ${err.stderr?.toString()}`)
+    throw new Error('Build failed: ' + err.stderr?.toString())
+  }
 
+  console.log(`[Builder] Successfully deployed: ${subdomain}`)
   return subdomain
 }
 

@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai')
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
 async function generatePlan(prompt) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const systemPrompt = `You are a senior software architect analyzing a user's app request.
 Analyze the request and determine if it's simple or complex.
@@ -38,7 +38,6 @@ If complex, set is_complex to true, total_phases to 2-4, and fill phases array:
   const text = response.text()
   const usage = response.usageMetadata
 
-  // Clean and parse JSON
   const clean = text.replace(/```json|```/g, '').trim()
   const plan = JSON.parse(clean)
 
@@ -49,7 +48,7 @@ If complex, set is_complex to true, total_phases to 2-4, and fill phases array:
 }
 
 async function generateCode(plan, phase = 1) {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const steps = plan.is_complex
     ? plan.phases?.[phase - 1]?.steps?.join('\n')
@@ -57,16 +56,16 @@ async function generateCode(plan, phase = 1) {
 
   const systemPrompt = `You are an expert React developer. Generate a complete working React application.
 
-REQUIREMENTS:
-- Use React with hooks
-- Use Tailwind CSS for all styling
+STRICT REQUIREMENTS:
+- Use React with hooks only
+- Use Tailwind CSS for ALL styling (loaded via CDN, so all classes work)
 - Make it beautiful, modern, dark theme preferred
-- All in a single App.jsx file
-- Include proper routing if needed (use hash routing #/ for SPAs)
-- Make it fully functional and production ready
-- Include sample/mock data where needed
-
-Return ONLY the complete App.jsx code. No explanation, no markdown, just the raw JSX code starting with imports.`
+- Single App.jsx file only
+- Use react-router-dom for routing if needed
+- For lucide-react icons: ONLY use these safe icons: Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Unlock, Mail, Phone, Calendar, Clock, Star, Heart, Bookmark, Share, Link, Copy, ExternalLink, AlertCircle, AlertTriangle, Info, CheckCircle, XCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, PieChart, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Truck, Globe, Wifi, Battery, Sun, Moon, ZoomIn, ZoomOut, Maximize, Minimize, Play, Pause, Volume2, VolumeX, Camera, Image, File, Folder, Send, MessageCircle, Users, Shield, Key, Database, Server, Code, Terminal, Cpu, Activity
+- Do NOT import icons not in the list above
+- Do NOT use any npm packages other than: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
+- Return ONLY the raw JSX code starting with import statements. No markdown, no backticks, no explanation.`
 
   const userPrompt = `Build this app:
 Understanding: ${plan.understanding}
