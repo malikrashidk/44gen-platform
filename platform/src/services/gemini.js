@@ -6,11 +6,11 @@ async function generatePlan(prompt) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const systemPrompt = `You are a senior software architect analyzing a user's app request.
-Analyze the request and determine if it's simple or complex.
+Analyze the request and determine if it is simple or complex.
 
 COMPLEXITY RULES:
 - Simple: single feature, 1-4 files, straightforward (todo app, landing page, form)
-- Complex: multiple distinct features, 5+ files, requires phases (full SaaS, e-commerce, dashboard with auth + payments + admin)
+- Complex: multiple distinct features, 5+ files, requires phases
 
 Return ONLY a valid JSON object with NO markdown, NO backticks, NO explanation:
 {
@@ -20,24 +20,23 @@ Return ONLY a valid JSON object with NO markdown, NO backticks, NO explanation:
   "current_phase": 1,
   "total_phases": 1,
   "steps": ["step 1", "step 2"],
-  "files": ["src/App.jsx", "src/components/X.jsx"],
-  "questions": ["question if unclear?"],
-  "out_of_scope": ["feature not included"],
+  "files": ["src/App.jsx"],
+  "questions": [],
+  "out_of_scope": [],
   "estimated_credits": 2.5,
   "phases": null
 }
 
-If complex, set is_complex to true, total_phases to 2-4, and fill phases array:
+If complex set is_complex true, total_phases 2-4, fill phases:
 "phases": [
-  { "phase": 1, "description": "Core setup + auth", "steps": ["step1", "step2"] },
-  { "phase": 2, "description": "Payments integration", "steps": ["step1"] }
+  { "phase": 1, "description": "Core setup", "steps": ["step1"] },
+  { "phase": 2, "description": "Advanced features", "steps": ["step1"] }
 ]`
 
   const result = await model.generateContent(`${systemPrompt}\n\nUser request: "${prompt}"`)
   const response = await result.response
   const text = response.text()
   const usage = response.usageMetadata
-
   const clean = text.replace(/```json|```/g, '').trim()
   const plan = JSON.parse(clean)
 
@@ -47,7 +46,7 @@ If complex, set is_complex to true, total_phases to 2-4, and fill phases array:
   }
 }
 
-async function generateCode(plan, phase = 1) {
+async function generateCodeStream(plan, phase, onChunk, onThought) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const steps = plan.is_complex
@@ -57,30 +56,86 @@ async function generateCode(plan, phase = 1) {
   const systemPrompt = `You are an expert React developer. Generate a complete working React application.
 
 STRICT REQUIREMENTS:
-- Use React with hooks only
-- Use Tailwind CSS for ALL styling (loaded via CDN, so all classes work)
-- Make it beautiful, modern, dark theme preferred
+- React with hooks only
+- Tailwind CSS for ALL styling (loaded via CDN so all classes work)
+- Beautiful modern UI, dark theme preferred
 - Single App.jsx file only
 - Use react-router-dom for routing if needed
-- For lucide-react icons: ONLY use these safe icons: Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Unlock, Mail, Phone, Calendar, Clock, Star, Heart, Bookmark, Share, Link, Copy, ExternalLink, AlertCircle, AlertTriangle, Info, CheckCircle, XCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, PieChart, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Truck, Globe, Wifi, Battery, Sun, Moon, ZoomIn, ZoomOut, Maximize, Minimize, Play, Pause, Volume2, VolumeX, Camera, Image, File, Folder, Send, MessageCircle, Users, Shield, Key, Database, Server, Code, Terminal, Cpu, Activity
-- Do NOT import icons not in the list above
-- Do NOT use any npm packages other than: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
-- Return ONLY the raw JSX code starting with import statements. No markdown, no backticks, no explanation.`
+- Only use these lucide-react icons: Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield, Database, Server
+- Only use packages: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
+- Return ONLY raw JSX code starting with imports. No markdown, no backticks, no explanation.`
 
   const userPrompt = `Build this app:
 Understanding: ${plan.understanding}
-Steps to implement:
+Steps:
 ${steps}
-Files needed: ${plan.files?.join(', ')}`
+Files: ${plan.files?.join(', ')}`
 
-  const result = await model.generateContent(`${systemPrompt}\n\n${userPrompt}`)
-  const response = await result.response
-  const usage = response.usageMetadata
+  const stream = await model.generateContentStream(`${systemPrompt}\n\n${userPrompt}`)
 
-  return {
-    code: response.text(),
-    tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+  let fullCode = ''
+  let totalTokens = 0
+
+  for await (const chunk of stream.stream) {
+    const parts = chunk.candidates?.[0]?.content?.parts || []
+    for (const part of parts) {
+      if (part.thought && part.text) {
+        if (onThought) onThought(part.text)
+      } else if (part.text) {
+        fullCode += part.text
+        if (onChunk) onChunk(part.text)
+      }
+    }
+    // fallback for simple text chunks
+    try {
+      const t = chunk.text()
+      if (t && !parts.length) {
+        fullCode += t
+        if (onChunk) onChunk(t)
+      }
+    } catch {}
+  }
+
+  const finalResponse = await stream.response
+  const usage = finalResponse.usageMetadata
+  totalTokens = (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+
+  return { code: fullCode, tokens_used: totalTokens }
+}
+
+async function generateSummary(plan, filesWritten) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+  const prompt = `You just built a React app. Write a short structured summary.
+
+App: ${plan.app_name}
+What was built: ${plan.understanding}
+Files created: ${filesWritten.join(', ')}
+Steps completed: ${plan.steps?.join(', ')}
+
+Return ONLY valid JSON, no markdown:
+{
+  "title": "short title",
+  "description": "2-3 sentence description of what was built and what it does",
+  "features": ["feature 1", "feature 2", "feature 3", "feature 4"],
+  "files_written": ["src/App.jsx"],
+  "tech": ["React", "Tailwind CSS"]
+}`
+
+  const result = await model.generateContent(prompt)
+  const text = result.response.text()
+  const clean = text.replace(/```json|```/g, '').trim()
+  try {
+    return JSON.parse(clean)
+  } catch {
+    return {
+      title: plan.app_name || 'App',
+      description: plan.understanding,
+      features: plan.steps?.slice(0, 4) || [],
+      files_written: filesWritten,
+      tech: ['React', 'Tailwind CSS']
+    }
   }
 }
 
-module.exports = { generatePlan, generateCode }
+module.exports = { generatePlan, generateCodeStream, generateSummary }

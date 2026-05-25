@@ -1,25 +1,24 @@
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
+const { spawn } = require('child_process')
 
 const USERS_DIR = '/var/www/44gen/users'
 
-async function buildAndDeploy(projectId, code) {
+async function buildAndDeploy(projectId, code, onProgress) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
 
-  console.log(`[Builder] Starting build for ${subdomain}`)
+  const emit = (type, message, extra = {}) => {
+    if (onProgress) onProgress({ type, message, ...extra })
+  }
 
   // Clean existing directory
   if (fs.existsSync(projectDir)) {
     fs.rmSync(projectDir, { recursive: true, force: true })
   }
-
-  // Create fresh directory
   fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
-  console.log(`[Builder] Created directory: ${projectDir}`)
 
-  // Write package.json with latest versions
+  // Write package.json
   fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
     name: subdomain,
     version: '1.0.0',
@@ -45,10 +44,7 @@ async function buildAndDeploy(projectId, code) {
   fs.writeFileSync(path.join(projectDir, 'vite.config.js'),
 `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-export default defineConfig({
-  plugins: [react()],
-  base: '/'
-})`)
+export default defineConfig({ plugins: [react()], base: '/' })`)
 
   // Write index.html
   fs.writeFileSync(path.join(projectDir, 'index.html'),
@@ -75,38 +71,54 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`)
 
-  // Write generated App.jsx
+  // Write App.jsx
   fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), code)
-  console.log(`[Builder] Files written`)
 
-  // Install dependencies
-  try {
-    console.log(`[Builder] Installing dependencies...`)
-    const installOutput = execSync('npm install --legacy-peer-deps', {
-      cwd: projectDir,
-      timeout: 180000
-    })
-    console.log(`[Builder] Install done`)
-  } catch (err) {
-    console.error(`[Builder] Install failed: ${err.stderr?.toString()}`)
-    throw new Error('npm install failed: ' + err.stderr?.toString())
-  }
+  // npm install with progress
+  emit('installing', 'Installing dependencies...')
+  await runCommand('npm', ['install', '--legacy-peer-deps'], projectDir, (line) => {
+    const match = line.match(/added (\d+) packages/)
+    if (match) emit('installing', `Installing dependencies... (${match[1]} packages)`)
+  })
 
-  // Build
-  try {
-    console.log(`[Builder] Building...`)
-    execSync('npm run build', {
-      cwd: projectDir,
-      timeout: 180000
-    })
-    console.log(`[Builder] Build successful!`)
-  } catch (err) {
-    console.error(`[Builder] Build failed: ${err.stderr?.toString()}`)
-    throw new Error('Build failed: ' + err.stderr?.toString())
-  }
+  // vite build with progress
+  emit('building', 'Building with Vite...')
+  await runCommand('npm', ['run', 'build'], projectDir, (line) => {
+    if (line.includes('transforming')) emit('building', 'Compiling modules...')
+    if (line.includes('rendering')) emit('building', 'Rendering chunks...')
+    if (line.includes('built in')) {
+      const time = line.match(/built in (.+)/)
+      emit('building', `Build complete! ${time ? time[1] : ''}`)
+    }
+  })
 
-  console.log(`[Builder] Successfully deployed: ${subdomain}`)
+  emit('deploying', 'Going live...')
   return subdomain
+}
+
+function runCommand(cmd, args, cwd, onLine) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { cwd, timeout: 180000 })
+    let stderr = ''
+
+    proc.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean)
+      lines.forEach(line => onLine && onLine(line))
+    })
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString()
+      const lines = data.toString().split('\n').filter(Boolean)
+      lines.forEach(line => onLine && onLine(line))
+    })
+
+    proc.on('close', (code) => {
+      if (code !== 0) reject(new Error(stderr || `Command failed with code ${code}`))
+      else resolve()
+    })
+
+    proc.on('error', reject)
+  })
 }
 
 module.exports = { buildAndDeploy }
