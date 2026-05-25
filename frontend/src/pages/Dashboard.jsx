@@ -4,12 +4,37 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Plus, Zap, Clock, Trash2, ExternalLink, LogOut, Sun, Moon, Sparkles, ChevronRight } from 'lucide-react'
 
+function DeleteModal({ projectName, onConfirm, onCancel }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+      <div style={{ background: '#161616', border: '1px solid #2a2a2a', borderRadius: 14, padding: 24, width: 320, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f0f0f0', marginBottom: 8 }}>Delete project?</h3>
+        <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, marginBottom: 20 }}>
+          <strong style={{ color: '#f0f0f0' }}>{projectName}</strong> will be permanently deleted. This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid #2a2a2a', background: 'transparent', color: '#f0f0f0', fontSize: 13, cursor: 'pointer' }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { user, profile, signOut, fetchProfile } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [darkMode, setDarkMode] = useState(true)
+  const [deleteTarget, setDeleteTarget] = useState(null) // { id, name }
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('44gen-dark-mode')
+    return saved !== null ? saved === 'true' : true
+  })
   const navigate = useNavigate()
 
   const d = darkMode
@@ -20,27 +45,52 @@ export default function Dashboard() {
   const muted = d ? '#666' : '#999'
   const subtle = d ? '#1a1a1a' : '#f0f0f0'
 
-  useEffect(() => { fetchProjects(); if (user) fetchProfile(user.id) }, [user])
+  useEffect(() => {
+    if (user) { fetchProjects(); fetchProfile(user.id) }
+  }, [user])
+
+  const toggleDarkMode = () => {
+    const next = !darkMode
+    setDarkMode(next)
+    localStorage.setItem('44gen-dark-mode', String(next))
+  }
 
   const fetchProjects = async () => {
-    const { data } = await supabase.from('projects').select('*').order('created_at', { ascending: false })
-    setProjects(data || [])
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+    if (!error) setProjects(data || [])
     setLoading(false)
   }
 
   const createProject = async () => {
     setCreating(true)
-    const { data, error } = await supabase
-      .from('projects').insert({ user_id: user.id, name: 'Untitled App', prompt: '', status: 'draft' }).select().single()
-    if (!error && data) navigate(`/editor/${data.id}`)
-    setCreating(false)
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({ user_id: user.id, name: 'Untitled App', prompt: '', status: 'draft' })
+        .select().single()
+      if (error) throw error
+      navigate(`/editor/${data.id}`)
+    } catch (err) {
+      console.error('Failed to create project:', err.message)
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const deleteProject = async (id, e) => {
+  const confirmDelete = (project, e) => {
     e.stopPropagation()
-    if (!confirm('Delete this project?')) return
-    await supabase.from('projects').delete().eq('id', id)
-    setProjects(projects.filter(p => p.id !== id))
+    setDeleteTarget({ id: project.id, name: project.name })
+  }
+
+  const executeDelete = async () => {
+    const { id } = deleteTarget
+    setDeleteTarget(null)
+    await supabase.from('projects').delete().eq('id', id).eq('user_id', user.id)
+    setProjects(prev => prev.filter(p => p.id !== id))
   }
 
   const statusBadge = (status) => {
@@ -51,6 +101,14 @@ export default function Dashboard() {
 
   return (
     <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: "'DM Sans','Inter',sans-serif" }}>
+      {deleteTarget && (
+        <DeleteModal
+          projectName={deleteTarget.name}
+          onConfirm={executeDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
       {/* Nav */}
       <nav style={{ borderBottom: `1px solid ${border}`, background: surface, position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -66,7 +124,7 @@ export default function Dashboard() {
             <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </div>
-            <button onClick={() => setDarkMode(!darkMode)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
+            <button onClick={toggleDarkMode} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
               {darkMode ? <Sun size={13} /> : <Moon size={13} />}
             </button>
             <button onClick={() => { signOut(); navigate('/') }} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
@@ -77,7 +135,6 @@ export default function Dashboard() {
       </nav>
 
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 24px' }}>
-        {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Projects</h1>
@@ -107,7 +164,6 @@ export default function Dashboard() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-            {/* New project card */}
             <button onClick={createProject} disabled={creating}
               style={{ border: `2px dashed ${border}`, background: 'transparent', borderRadius: 14, padding: 20, minHeight: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', color: muted, transition: 'all 0.15s' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed66'; e.currentTarget.style.color = '#7c3aed' }}
@@ -128,7 +184,7 @@ export default function Dashboard() {
                   <div>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
                       <h3 style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.2px', lineHeight: 1.3 }}>{project.name}</h3>
-                      <button onClick={e => deleteProject(project.id, e)}
+                      <button onClick={e => confirmDelete(project, e)}
                         style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', padding: 2, borderRadius: 5, display: 'flex', flexShrink: 0 }}
                         onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
                         onMouseLeave={e => e.currentTarget.style.color = muted}>

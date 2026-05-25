@@ -1,6 +1,7 @@
 const express = require('express')
 const router = express.Router()
 const { generatePlan } = require('../services/gemini')
+const { requireAuth } = require('../middleware/auth')
 const { createClient } = require('@supabase/supabase-js')
 
 const supabase = createClient(
@@ -8,18 +9,35 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY
 )
 
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   const { prompt, projectId } = req.body
+  const userId = req.user.id
 
   if (!prompt) return res.status(400).json({ error: 'Prompt is required' })
 
+  // Check credits before generating
+  const { data: profile } = await supabase
+    .from('profiles').select('credits').eq('id', userId).single()
+  if (!profile || profile.credits < 0.1)
+    return res.status(402).json({ error: 'Insufficient credits' })
+
   try {
     const { plan, tokens_used } = await generatePlan(prompt)
-
-    // Calculate credits (dynamic based on tokens)
     const credits_used = parseFloat((tokens_used / 10000).toFixed(2))
 
-    // Save plan to database
+    // Atomic credit deduction — only proceeds if credits are still sufficient
+    const { data: updated } = await supabase
+      .from('profiles')
+      .update({ credits: profile.credits - credits_used })
+      .eq('id', userId)
+      .gte('credits', credits_used)
+      .select('credits')
+      .single()
+
+    if (!updated) {
+      return res.status(402).json({ error: 'Insufficient credits' })
+    }
+
     if (projectId) {
       await supabase.from('plans').insert({
         project_id: projectId,
@@ -39,14 +57,9 @@ router.post('/', async (req, res) => {
       })
     }
 
-    res.json({
-      ...plan,
-      credits_used,
-      tokens_used
-    })
-
+    res.json({ ...plan, credits_used, tokens_used })
   } catch (error) {
-    console.error('Plan error:', error)
+    console.error('[Plan] Error:', error)
     res.status(500).json({ error: 'Failed to generate plan' })
   }
 })
