@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files (never push these)
+.env
+*/.env
+**/.env
+
+# Build outputs
+dist/
+*/dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# PM2
+.pm2/
+
+# User generated apps
+users/
