@@ -6,14 +6,14 @@ import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
-  Share, LogOut, Settings, Activity, FileCode, BookmarkPlus, Edit
+  Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
 
 export default function Editor() {
   const { projectId } = useParams()
-  const { user, profile, fetchProfile, signOut } = useAuth()
+  const { user, profile, session, fetchProfile, signOut } = useAuth()
   const navigate = useNavigate()
 
   const [project, setProject] = useState(null)
@@ -24,10 +24,15 @@ export default function Editor() {
   const [stage, setStage] = useState('idle')
   const [previewUrl, setPreviewUrl] = useState(null)
   const [previewKey, setPreviewKey] = useState(0)
+  const [iframeStatus, setIframeStatus] = useState('idle') // 'idle'|'loading'|'loaded'|'error'
   const [activeTab, setActiveTab] = useState('preview')
-  const [darkMode, setDarkMode] = useState(true)
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('44gen-dark-mode')
+    return saved !== null ? saved === 'true' : true
+  })
   const [previewDevice, setPreviewDevice] = useState('desktop')
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showChat, setShowChat] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState('')
   const [detailsLog, setDetailsLog] = useState([])
@@ -37,10 +42,19 @@ export default function Editor() {
   const textareaRef = useRef(null)
   const esRef = useRef(null)
 
-  // For code streaming - use refs to avoid stale closures
   const codeChunksRef = useRef('')
   const codeMessageIdRef = useRef(null)
   const codeFlushIntervalRef = useRef(null)
+
+  const sessionRef = useRef(session)
+  useEffect(() => { sessionRef.current = session }, [session])
+
+  const stageRef = useRef(stage)
+  useEffect(() => { stageRef.current = stage }, [stage])
+
+  const handleStreamEventRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimeoutRef = useRef(null)
 
   const d = darkMode
   const bg = d ? '#0f0f0f' : '#f5f5f5'
@@ -54,11 +68,28 @@ export default function Editor() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (projectId) { loadConversations(); checkActiveBuildJob() } }, [projectId])
 
-  // Flush code buffer to UI every 80ms to avoid too many state updates
+  // Reset iframe status when preview changes
+  useEffect(() => {
+    if (previewUrl) setIframeStatus('loading')
+  }, [previewKey, previewUrl])
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    stopCodeFlush()
+    if (esRef.current) esRef.current.close()
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+  }, [])
+
+  const toggleDarkMode = () => {
+    const next = !darkMode
+    setDarkMode(next)
+    localStorage.setItem('44gen-dark-mode', String(next))
+  }
+
   const startCodeFlush = useCallback(() => {
     if (codeFlushIntervalRef.current) return
     codeFlushIntervalRef.current = setInterval(() => {
-      if (codeMessageIdRef.current && codeChunksRef.current !== undefined) {
+      if (codeMessageIdRef.current) {
         const snapshot = codeChunksRef.current
         setMessages(prev => prev.map(m =>
           m.id === codeMessageIdRef.current
@@ -76,11 +107,6 @@ export default function Editor() {
     }
   }, [])
 
-  useEffect(() => () => {
-    stopCodeFlush()
-    if (esRef.current) esRef.current.close()
-  }, [])
-
   const fetchProject = async () => {
     const { data } = await supabase
       .from('projects').select('*').eq('id', projectId).single()
@@ -94,21 +120,24 @@ export default function Editor() {
       .from('conversations').select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
+      .limit(100)
     if (!data?.length) return
 
+    let latestCode = ''
     const loaded = data.map(c => {
       if (c.type === 'complete') {
         try { return { id: c.id, role: 'assistant', content: JSON.parse(c.content), type: 'complete' } }
         catch { return null }
       }
       if (c.type === 'code') {
-        setFullCode(c.content)
+        latestCode = c.content
         return { id: c.id, role: 'assistant', content: { file: 'src/App.jsx', code: c.content }, type: 'code_done' }
       }
       if (c.type === 'plan_approved') return null
       return { id: c.id, role: c.role, content: c.content, type: c.type || 'message' }
     }).filter(Boolean)
 
+    if (latestCode) setFullCode(latestCode)
     setMessages(loaded)
   }
 
@@ -141,32 +170,57 @@ export default function Editor() {
     })
   }
 
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${sessionRef.current?.access_token}`
+  })
+
   const connectToStream = useCallback((jobId) => {
     if (esRef.current) esRef.current.close()
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+
     codeChunksRef.current = ''
     codeMessageIdRef.current = null
 
-    const es = new EventSource(`${API}/api/build/stream/${jobId}`)
+    const token = sessionRef.current?.access_token
+    const es = new EventSource(`${API}/api/build/stream/${jobId}?token=${token}`)
     esRef.current = es
 
     es.onmessage = (e) => {
-      try { handleStreamEvent(JSON.parse(e.data)) } catch {}
+      try { handleStreamEventRef.current?.(JSON.parse(e.data)) } catch {}
     }
-    es.onerror = () => {
-      stopCodeFlush()
-      setStage('idle')
-      setLoading(false)
-    }
-  }, [])
 
-  const handleStreamEvent = useCallback((event) => {
+    es.onerror = () => {
+      if (stageRef.current === 'building' && reconnectAttemptsRef.current < 3) {
+        reconnectAttemptsRef.current++
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (stageRef.current === 'building') connectToStream(jobId)
+        }, 2000 * reconnectAttemptsRef.current)
+      } else {
+        stopCodeFlush()
+        setStage('idle')
+        setLoading(false)
+        reconnectAttemptsRef.current = 0
+      }
+    }
+  }, [stopCodeFlush])
+
+  // handleStreamEvent as a plain function updated into ref each render
+  const handleStreamEvent = (event) => {
     const addDetail = (icon, msg, color) =>
       setDetailsLog(prev => [...prev, { icon, msg, color, ts: Date.now() }])
 
     switch (event.type) {
-      case 'start':
+      case 'queued':
         setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', event.message, 'status_inline')
+        addMessage('assistant', event.message, 'status')
+        addDetail('⏳', event.message, '#f59e0b')
+        break
+
+      case 'start':
+        reconnectAttemptsRef.current = 0
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        addMessage('assistant', event.message, 'status')
         addDetail('🚀', event.message, '#7c3aed')
         break
 
@@ -191,12 +245,11 @@ export default function Editor() {
 
       case 'code_chunk':
         codeChunksRef.current += event.text
-        setFullCode(prev => prev + event.text)
+        setFullCode(codeChunksRef.current)
         break
 
       case 'code_end':
         stopCodeFlush()
-        // Final flush
         if (codeMessageIdRef.current) {
           const finalCode = codeChunksRef.current
           setMessages(prev => prev.map(m =>
@@ -204,6 +257,7 @@ export default function Editor() {
               ? { ...m, content: { ...m.content, code: finalCode }, type: 'code_done' }
               : m
           ))
+          setFullCode(finalCode)
         }
         codeMessageIdRef.current = null
         addDetail('✅', 'Code generation complete', '#10b981')
@@ -247,11 +301,12 @@ export default function Editor() {
         setStage('done')
         setLoading(false)
         setPlan(null)
+        reconnectAttemptsRef.current = 0
         fetchProfile(user.id)
         fetchProject()
         addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
-          ...prev.filter(m => m.type !== 'build_step' && m.type !== 'status_inline'),
+          ...prev.filter(m => m.type !== 'build_step' && m.type !== 'status'),
           { id: Date.now(), role: 'assistant', content: event, type: 'complete' }
         ])
         if (esRef.current) esRef.current.close()
@@ -262,17 +317,21 @@ export default function Editor() {
         addMessage('assistant', event.message, 'error')
         setStage('idle')
         setLoading(false)
+        reconnectAttemptsRef.current = 0
         addDetail('❌', event.message, '#ef4444')
         if (esRef.current) esRef.current.close()
         break
     }
-  }, [user, fetchProfile, startCodeFlush, stopCodeFlush])
+  }
+
+  handleStreamEventRef.current = handleStreamEvent
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
     if (!prompt.trim() || loading) return
     const userPrompt = prompt.trim()
     setPrompt('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setLoading(true)
     addMessage('user', userPrompt)
     await saveConversation('user', userPrompt)
@@ -283,7 +342,7 @@ export default function Editor() {
 
       const res = await fetch(`${API}/api/plan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ prompt: userPrompt, projectId })
       })
       const planData = await res.json()
@@ -291,7 +350,9 @@ export default function Editor() {
       if (planData.error) {
         setMessages(prev => prev.filter(m => m.type !== 'status'))
         addMessage('assistant', planData.error, 'error')
-        setStage('idle'); setLoading(false); return
+        setStage('idle')
+        setLoading(false)
+        return
       }
 
       setPlan(planData)
@@ -301,25 +362,26 @@ export default function Editor() {
         { id: Date.now(), role: 'assistant', content: planData, type: 'plan' }
       ])
     } catch {
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
       addMessage('assistant', 'Something went wrong. Try again.', 'error')
       setStage('idle')
     }
     setLoading(false)
   }
 
-  const handleApprovePlan = async () => {
-    if (!plan) return
+  const startBuild = async (buildPlan) => {
     setLoading(true)
     setStage('building')
     setDetailsLog([])
     setFullCode('')
-    await saveConversation('assistant', `Building: ${plan.app_name}`, 'plan_approved')
+    codeChunksRef.current = ''
+    await saveConversation('assistant', `Building: ${buildPlan.app_name}`, 'plan_approved')
 
     try {
       const res = await fetch(`${API}/api/build`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan, projectId, userId: user.id })
+        headers: authHeaders(),
+        body: JSON.stringify({ plan: buildPlan, projectId })
       })
       const { job_id, error } = await res.json()
 
@@ -329,6 +391,7 @@ export default function Editor() {
       }
 
       setMessages(prev => prev.filter(m => m.type !== 'plan'))
+      reconnectAttemptsRef.current = 0
       connectToStream(job_id)
     } catch {
       addMessage('assistant', 'Failed to start build.', 'error')
@@ -336,9 +399,32 @@ export default function Editor() {
     }
   }
 
+  const handleApprovePlan = () => {
+    if (!plan) return
+    startBuild(plan)
+    setPlan(null)
+  }
+
+  // Continue to the next phase using the plan stored in the completion event
+  const handleContinuePhase = (nextPhase, originalPlan) => {
+    const phasedPlan = { ...originalPlan, current_phase: nextPhase }
+    setPlan(phasedPlan)
+    setStage('awaiting_approval')
+    setLoading(false)
+    setMessages(prev => [
+      ...prev,
+      { id: Date.now(), role: 'assistant', content: phasedPlan, type: 'plan' }
+    ])
+  }
+
   const handleRejectPlan = () => {
-    setPlan(null); setStage('idle')
+    setPlan(null); setStage('idle'); setLoading(false)
     addMessage('assistant', "Plan cancelled. What would you like to change?")
+  }
+
+  const handleRetry = () => {
+    setStage('idle')
+    setLoading(false)
   }
 
   const handleRename = async () => {
@@ -352,18 +438,17 @@ export default function Editor() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
   }
 
+  const handlePromptChange = (e) => {
+    setPrompt(e.target.value)
+    e.target.style.height = 'auto'
+    e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px'
+  }
+
   const isBuilding = stage === 'building' || stage === 'planning'
 
-  // ── Render message types ──────────────────────────────
+  // ── Message renderers ──────────────────────────────────
   const renderMessage = (msg) => {
     if (msg.type === 'status') return (
-      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
-        <Loader2 size={13} style={{ color: '#7c3aed', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
-        {msg.content}
-      </div>
-    )
-
-    if (msg.type === 'status_inline') return (
       <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
         <Loader2 size={13} style={{ color: '#7c3aed', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
         {msg.content}
@@ -391,19 +476,16 @@ export default function Editor() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: d ? '#161b22' : '#f0f2f4', borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}` }}>
             <FileCode size={11} style={{ color: '#3b82f6' }} />
             <span style={{ color: muted, fontFamily: 'monospace', fontSize: 11 }}>src/App.jsx</span>
-            {streaming && <Loader2 size={10} style={{ color: '#7c3aed', marginLeft: 'auto', animation: 'spin 0.8s linear infinite' }} />}
-            {!streaming && <CheckCircle2 size={10} style={{ color: '#10b981', marginLeft: 'auto' }} />}
+            {streaming
+              ? <Loader2 size={10} style={{ color: '#7c3aed', marginLeft: 'auto', animation: 'spin 0.8s linear infinite' }} />
+              : <CheckCircle2 size={10} style={{ color: '#10b981', marginLeft: 'auto' }} />}
           </div>
           <div style={{ padding: '8px 10px', fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.5, maxHeight: 140, overflow: 'hidden' }}>
             {lines.map((line, i) => (
-              <div key={i} style={{ whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {line || '\u00a0'}
-              </div>
+              <div key={i} style={{ whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line || ' '}</div>
             ))}
             {code.split('\n').length > 10 && (
-              <div style={{ color: muted, marginTop: 2 }}>
-                +{code.split('\n').length - 10} more lines
-              </div>
+              <div style={{ color: muted, marginTop: 2 }}>+{code.split('\n').length - 10} more lines</div>
             )}
             {streaming && (
               <span style={{ display: 'inline-block', width: 7, height: 13, background: '#7c3aed', marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 0.8s step-end infinite' }} />
@@ -421,9 +503,15 @@ export default function Editor() {
     )
 
     if (msg.type === 'error') return (
-      <div key={msg.id} style={{ display: 'flex', gap: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', color: '#f87171', fontSize: 13 }}>
-        <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-        {msg.content}
+      <div key={msg.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
+        <div style={{ display: 'flex', gap: 8, color: '#f87171', marginBottom: 8 }}>
+          <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+          {msg.content}
+        </div>
+        <button onClick={handleRetry}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>
+          <RefreshCcw size={11} /> Try again
+        </button>
       </div>
     )
 
@@ -433,11 +521,12 @@ export default function Editor() {
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#7c3aed', fontWeight: 600 }}>
-              <Sparkles size={13} /> Plan Ready
+              <Sparkles size={13} />
+              {p.total_phases > 1 && p.current_phase > 1 ? `Phase ${p.current_phase} Plan` : 'Plan Ready'}
             </div>
             {p.is_complex && (
               <span style={{ fontSize: 11, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)', padding: '2px 8px', borderRadius: 100 }}>
-                {p.total_phases} phases
+                Phase {p.current_phase}/{p.total_phases}
               </span>
             )}
           </div>
@@ -451,15 +540,15 @@ export default function Editor() {
             <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               {p.is_complex ? `Phase ${p.current_phase} Steps` : 'Steps'}
             </p>
-            {(p.is_complex ? p.phases?.[0]?.steps : p.steps)?.map((step, i) => (
+            {(p.is_complex ? p.phases?.[p.current_phase - 1]?.steps : p.steps)?.map((step, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: text, alignItems: 'flex-start' }}>
                 <ChevronRight size={11} style={{ color: '#7c3aed', marginTop: 3, flexShrink: 0 }} />
                 <span style={{ lineHeight: 1.4 }}>{step}</span>
               </div>
             ))}
-            {p.is_complex && p.phases?.slice(1).map((ph, i) => (
+            {p.is_complex && p.phases?.slice(p.current_phase).map((ph, i) => (
               <div key={i} style={{ marginTop: 6, color: muted, fontSize: 12 }}>
-                Phase {i + 2}: {ph.description}
+                Phase {p.current_phase + i + 1}: {ph.description}
               </div>
             ))}
           </div>
@@ -510,11 +599,10 @@ export default function Editor() {
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
           <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, padding: 14, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10b981', fontWeight: 600 }}>
                 <CheckCircle2 size={14} /> {s?.title || `Phase ${c.phase} Complete!`}
               </div>
-              <BookmarkPlus size={13} style={{ color: muted, cursor: 'pointer' }} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setActiveTab('details')}
@@ -573,10 +661,12 @@ export default function Editor() {
                 </a>
               </div>
 
-              {c.total_phases > 1 && c.phase < c.total_phases && (
+              {c.plan && c.total_phases > 1 && c.phase < c.total_phases && (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
-                  <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>Ready for Phase {c.phase + 1}? {c.next_phase_description}</p>
-                  <button onClick={() => setPrompt(`Continue to phase ${c.phase + 1}`)}
+                  <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>
+                    Ready for Phase {c.phase + 1}? {c.next_phase_description}
+                  </p>
+                  <button onClick={() => handleContinuePhase(c.phase + 1, c.plan)}
                     style={{ background: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                     Continue Phase {c.phase + 1} →
                   </button>
@@ -604,31 +694,34 @@ export default function Editor() {
   }
 
   return (
-    <div style={{ height: '100vh', background: bg, color: text, display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans','Inter',sans-serif", overflow: 'hidden' }}>
+    <div style={{ height: '100dvh', background: bg, color: text, display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans','Inter',sans-serif", overflow: 'hidden' }}>
 
       {/* TOP BAR */}
       <div style={{ height: 46, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0, zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={() => navigate('/dashboard')} style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <button onClick={() => navigate('/dashboard')} style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}>
             <ArrowLeft size={15} />
           </button>
-          <div style={{ width: 1, height: 14, background: border }} />
-          <div>
+          <div style={{ width: 1, height: 14, background: border, flexShrink: 0 }} />
+          {/* Chat toggle — always visible, highlights when chat is hidden */}
+          <button onClick={() => setShowChat(v => !v)}
+            title={showChat ? 'Hide chat' : 'Show chat'}
+            style={{ color: showChat ? '#7c3aed' : muted, background: showChat ? 'rgba(124,58,237,0.08)' : 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}>
+            <MessageSquare size={14} />
+          </button>
+          <div style={{ minWidth: 0 }}>
             {renaming ? (
               <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onBlur={handleRename} onKeyDown={e => e.key === 'Enter' && handleRename()}
                 style={{ background: subtle, border: `1px solid #7c3aed`, borderRadius: 5, padding: '2px 7px', color: text, fontSize: 13, fontWeight: 500, outline: 'none', width: 140 }} />
             ) : (
-              <button onClick={() => setRenaming(true)} style={{ background: 'none', border: 'none', color: text, fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0 }}>
+              <button onClick={() => setRenaming(true)} style={{ background: 'none', border: 'none', color: text, fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>
                 {project?.name || 'Untitled App'}
               </button>
             )}
-            {!isBuilding && project?.status === 'deployed' && (
-              <span style={{ fontSize: 11, color: muted, marginLeft: 8 }}>Previewing last saved version</span>
-            )}
           </div>
           <span style={{
-            fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 100,
+            fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 100, flexShrink: 0,
             background: project?.status === 'deployed' ? 'rgba(16,185,129,0.1)' : (d ? '#222' : '#eee'),
             color: project?.status === 'deployed' ? '#10b981' : muted
           }}>
@@ -636,7 +729,7 @@ export default function Editor() {
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {isBuilding && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}` }}>
               <Loader2 size={10} style={{ color: '#7c3aed', animation: 'spin 0.8s linear infinite' }} /> Building...
@@ -646,19 +739,19 @@ export default function Editor() {
             <Zap size={11} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0}
           </div>
           {previewUrl && (
-            <button onClick={() => { navigator.clipboard.writeText(previewUrl) }}
+            <button onClick={() => navigator.clipboard.writeText(previewUrl)}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}`, cursor: 'pointer' }}>
               <Share size={11} /> Share
             </button>
           )}
-          <button onClick={() => setDarkMode(!darkMode)}
+          <button onClick={toggleDarkMode}
             style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
           {previewUrl && (
             <a href={previewUrl} target="_blank" rel="noopener noreferrer"
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#fff', background: '#7c3aed', padding: '4px 12px', borderRadius: 7, textDecoration: 'none' }}>
-              <Globe size={11} /> Publish
+              <Globe size={11} /> <span className="hide-xs">Publish</span>
             </a>
           )}
           <div style={{ position: 'relative' }}>
@@ -666,10 +759,7 @@ export default function Editor() {
               style={{ width: 28, height: 28, borderRadius: '50%', background: '#7c3aed', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </button>
-            {showUserMenu && (
-              <div onClick={() => setShowUserMenu(false)}
-                style={{ position: 'fixed', inset: 0, zIndex: 90 }} />
-            )}
+            {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 90 }} />}
             {showUserMenu && (
               <div style={{ position: 'absolute', right: 0, top: 34, width: 210, background: surface, border: `1px solid ${border}`, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.25)', zIndex: 100, overflow: 'hidden' }}>
                 <div style={{ padding: '10px 13px', borderBottom: `1px solid ${border}` }}>
@@ -686,8 +776,7 @@ export default function Editor() {
                 {[
                   { icon: <ArrowLeft size={12} />, label: 'Dashboard', action: () => navigate('/dashboard') },
                   { icon: <Edit size={12} />, label: 'Rename project', action: () => { setRenaming(true); setShowUserMenu(false) } },
-                  { icon: darkMode ? <Sun size={12} /> : <Moon size={12} />, label: darkMode ? 'Light mode' : 'Dark mode', action: () => { setDarkMode(!darkMode); setShowUserMenu(false) } },
-                  { icon: <Settings size={12} />, label: 'Settings', action: () => setShowUserMenu(false) },
+                  { icon: darkMode ? <Sun size={12} /> : <Moon size={12} />, label: darkMode ? 'Light mode' : 'Dark mode', action: () => { toggleDarkMode(); setShowUserMenu(false) } },
                 ].map((item, i) => (
                   <button key={i} onClick={item.action}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 13px', background: 'none', border: 'none', color: text, fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
@@ -711,65 +800,67 @@ export default function Editor() {
       {/* MAIN */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* LEFT — Chat */}
-        <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}` }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {messages.length === 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 12px' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-                  <Sparkles size={18} style={{ color: '#7c3aed' }} />
+        {/* LEFT — Chat (collapsible) */}
+        {showChat && (
+          <div className="chat-panel" style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}` }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {messages.length === 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 12px' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                    <Sparkles size={18} style={{ color: '#7c3aed' }} />
+                  </div>
+                  <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 5, color: text }}>What would you like to build?</p>
+                  <p style={{ fontSize: 12, color: muted, lineHeight: 1.5, marginBottom: 16 }}>
+                    Describe your app and I'll create a detailed plan for your approval before writing any code.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%' }}>
+                    {['A todo app with categories', 'A landing page for my SaaS', 'A dashboard with charts'].map((s, i) => (
+                      <button key={i} onClick={() => setPrompt(s)}
+                        style={{ textAlign: 'left', fontSize: 12, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '7px 10px', color: muted, cursor: 'pointer' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed44'; e.currentTarget.style.color = text }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 5, color: text }}>What would you like to build?</p>
-                <p style={{ fontSize: 12, color: muted, lineHeight: 1.5, marginBottom: 16 }}>
-                  Describe your app and I'll create a detailed plan for your approval before writing any code.
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%' }}>
-                  {['A todo app with categories', 'A landing page for my SaaS', 'A dashboard with charts'].map((s, i) => (
-                    <button key={i} onClick={() => setPrompt(s)}
-                      style={{ textAlign: 'left', fontSize: 12, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '7px 10px', color: muted, cursor: 'pointer' }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed44'; e.currentTarget.style.color = text }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {messages.map(msg => renderMessage(msg))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input */}
-          <div style={{ padding: 10, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, background: d ? '#111' : '#fff', border: `1px solid ${border}`, borderRadius: 12, padding: '7px 9px' }}>
-              <textarea ref={textareaRef} value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  stage === 'awaiting_approval' ? 'Approve or cancel the plan first...' :
-                  stage === 'building' ? 'Building your app...' :
-                  'Describe your app or request changes...'
-                }
-                disabled={loading || stage === 'awaiting_approval' || stage === 'building'}
-                rows={1}
-                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, maxHeight: 100, fontFamily: 'inherit' }}
-              />
-              <button onClick={handleSubmit}
-                disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'building'}
-                style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && stage === 'idle' ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && stage === 'idle' ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {loading && stage === 'planning'
-                  ? <Loader2 size={12} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
-                  : <Send size={12} style={{ color: prompt.trim() && stage === 'idle' ? '#fff' : muted }} />}
-              </button>
+              )}
+              {messages.map(msg => renderMessage(msg))}
+              <div ref={messagesEndRef} />
             </div>
-            <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
-              Plan ~0.5 credits · Build cost shown in plan
-            </p>
+
+            {/* Input */}
+            <div style={{ padding: 10, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, background: d ? '#111' : '#fff', border: `1px solid ${border}`, borderRadius: 12, padding: '7px 9px' }}>
+                <textarea ref={textareaRef} value={prompt}
+                  onChange={handlePromptChange}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    stage === 'awaiting_approval' ? 'Approve or cancel the plan first...' :
+                    stage === 'building' ? 'Building your app...' :
+                    'Describe your app or request changes...'
+                  }
+                  disabled={loading || stage === 'awaiting_approval' || stage === 'building'}
+                  rows={1}
+                  style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, fontFamily: 'inherit', overflow: 'hidden' }}
+                />
+                <button onClick={handleSubmit}
+                  disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'building'}
+                  style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && stage === 'idle' ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && stage === 'idle' ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {loading && stage === 'planning'
+                    ? <Loader2 size={12} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
+                    : <Send size={12} style={{ color: prompt.trim() && stage === 'idle' ? '#fff' : muted }} />}
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
+                Plan ~0.5 credits · Build cost shown in plan
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* RIGHT — Preview / Code / Details */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
           <div style={{ height: 38, display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0 }}>
             {[
               { id: 'preview', icon: <Eye size={12} />, label: 'Preview' },
@@ -791,8 +882,8 @@ export default function Editor() {
             ))}
             {previewUrl && activeTab === 'preview' && (
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: muted, fontFamily: 'monospace' }}>{previewUrl.replace('https://', '')}</span>
-                <button onClick={() => setPreviewDevice(d => d === 'desktop' ? 'mobile' : 'desktop')}
+                <span className="hide-xs" style={{ fontSize: 10, color: muted, fontFamily: 'monospace' }}>{previewUrl.replace('https://', '')}</span>
+                <button onClick={() => setPreviewDevice(prev => prev === 'desktop' ? 'mobile' : 'desktop')}
                   style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
                   {previewDevice === 'desktop' ? <Smartphone size={12} /> : <Monitor size={12} />}
                 </button>
@@ -808,7 +899,7 @@ export default function Editor() {
           </div>
 
           {activeTab === 'preview' && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#e0e0e0', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#e0e0e0', overflow: 'hidden', position: 'relative' }}>
               {previewUrl ? (
                 <div style={{
                   width: previewDevice === 'mobile' ? 390 : '100%',
@@ -816,9 +907,33 @@ export default function Editor() {
                   maxHeight: '100%',
                   borderRadius: previewDevice === 'mobile' ? 14 : 0,
                   overflow: 'hidden',
-                  boxShadow: previewDevice === 'mobile' ? '0 20px 60px rgba(0,0,0,0.5)' : 'none'
+                  boxShadow: previewDevice === 'mobile' ? '0 20px 60px rgba(0,0,0,0.5)' : 'none',
+                  position: 'relative'
                 }}>
-                  <iframe key={previewKey} src={previewUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="Preview" />
+                  {iframeStatus === 'loading' && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: d ? '#0d0d0d' : '#f0f0f0', zIndex: 1 }}>
+                      <Loader2 size={22} style={{ color: '#7c3aed', animation: 'spin 0.8s linear infinite', marginBottom: 8 }} />
+                      <p style={{ fontSize: 12, color: muted }}>Loading preview...</p>
+                    </div>
+                  )}
+                  {iframeStatus === 'error' && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: d ? '#0d0d0d' : '#f0f0f0', zIndex: 1, gap: 8 }}>
+                      <AlertCircle size={22} style={{ color: '#ef4444' }} />
+                      <p style={{ fontSize: 13, color: muted }}>Preview failed to load</p>
+                      <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        Open directly <ExternalLink size={11} />
+                      </a>
+                    </div>
+                  )}
+                  <iframe
+                    key={previewKey}
+                    src={previewUrl}
+                    style={{ width: '100%', height: '100%', border: 'none', opacity: iframeStatus === 'loaded' ? 1 : 0 }}
+                    title="Preview"
+                    onLoad={() => setIframeStatus('loaded')}
+                    onError={() => setIframeStatus('error')}
+                  />
                 </div>
               ) : (
                 <div style={{ textAlign: 'center', color: muted }}>
@@ -841,7 +956,7 @@ export default function Editor() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: muted }}>
                   <Code size={22} style={{ opacity: 0.3, marginBottom: 6 }} />
-                  <p style={{ fontSize: 12 }}>No code yet</p>
+                  <p style={{ fontSize: 12 }}>Code appears here after building</p>
                 </div>
               )}
             </div>
@@ -860,9 +975,7 @@ export default function Editor() {
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12 }}>
                       <span style={{ flexShrink: 0 }}>{item.icon}</span>
                       <span style={{ color: item.color || text, flex: 1, lineHeight: 1.4 }}>{item.msg}</span>
-                      <span style={{ color: muted, fontSize: 10, flexShrink: 0 }}>
-                        {new Date(item.ts).toLocaleTimeString()}
-                      </span>
+                      <span style={{ color: muted, fontSize: 10, flexShrink: 0 }}>{new Date(item.ts).toLocaleTimeString()}</span>
                     </div>
                   ))}
                   {isBuilding && (
@@ -881,10 +994,13 @@ export default function Editor() {
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         * { box-sizing: border-box; margin: 0; padding: 0 }
-        textarea { overflow-y: hidden; }
         ::-webkit-scrollbar { width: 4px; height: 4px }
         ::-webkit-scrollbar-track { background: transparent }
         ::-webkit-scrollbar-thumb { background: ${d ? '#333' : '#ddd'}; border-radius: 2px }
+        @media (max-width: 640px) {
+          .chat-panel { width: 100% !important; position: absolute; inset: 46px 0 0 0; z-index: 40; }
+          .hide-xs { display: none !important; }
+        }
       `}</style>
     </div>
   )

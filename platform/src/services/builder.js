@@ -3,13 +3,15 @@ const path = require('path')
 const { spawn } = require('child_process')
 
 const USERS_DIR = '/var/www/44gen/users'
+// Shared npm cache to avoid re-downloading packages on every build
+const NPM_CACHE_DIR = '/var/www/44gen/.npm-cache'
 
 async function buildAndDeploy(projectId, code, onProgress) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
 
-  const emit = (type, message, extra = {}) => {
-    if (onProgress) onProgress({ type, message, ...extra })
+  const emit = (type, message) => {
+    if (onProgress) onProgress({ type, message })
   }
 
   // Clean existing directory
@@ -17,8 +19,9 @@ async function buildAndDeploy(projectId, code, onProgress) {
     fs.rmSync(projectDir, { recursive: true, force: true })
   }
   fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
+  // Ensure shared npm cache dir exists
+  fs.mkdirSync(NPM_CACHE_DIR, { recursive: true })
 
-  // Write package.json
   fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
     name: subdomain,
     version: '1.0.0',
@@ -28,8 +31,8 @@ async function buildAndDeploy(projectId, code, onProgress) {
       'react': '^18.2.0',
       'react-dom': '^18.2.0',
       'react-router-dom': '^6.8.0',
-      'lucide-react': 'latest',
-      'recharts': '^3.0.0',
+      'lucide-react': '^0.460.0',
+      'recharts': '^2.12.0',
       'axios': '^1.6.0',
       'date-fns': '^3.0.0',
       'clsx': '^2.0.0'
@@ -40,13 +43,11 @@ async function buildAndDeploy(projectId, code, onProgress) {
     }
   }, null, 2))
 
-  // Write vite.config.js
   fs.writeFileSync(path.join(projectDir, 'vite.config.js'),
 `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 export default defineConfig({ plugins: [react()], base: '/' })`)
 
-  // Write index.html
   fs.writeFileSync(path.join(projectDir, 'index.html'),
 `<!DOCTYPE html>
 <html lang="en">
@@ -62,7 +63,6 @@ export default defineConfig({ plugins: [react()], base: '/' })`)
 </body>
 </html>`)
 
-  // Write main.jsx
   fs.writeFileSync(path.join(projectDir, 'src', 'main.jsx'),
 `import React from 'react'
 import ReactDOM from 'react-dom/client'
@@ -71,26 +71,29 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`)
 
-  // Write App.jsx
   fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), code)
 
-  // npm install with progress
-  emit('installing', 'Installing dependencies...')
-  await runCommand('npm', ['install', '--legacy-peer-deps'], projectDir, (line) => {
-    const match = line.match(/added (\d+) packages/)
-    if (match) emit('installing', `Installing dependencies... (${match[1]} packages)`)
-  })
+  try {
+    emit('installing', 'Installing dependencies...')
+    await runCommand('npm', ['install', '--legacy-peer-deps', '--cache', NPM_CACHE_DIR], projectDir, (line) => {
+      const match = line.match(/added (\d+) packages/)
+      if (match) emit('installing', `Installing dependencies... (${match[1]} packages)`)
+    })
 
-  // vite build with progress
-  emit('building', 'Building with Vite...')
-  await runCommand('npm', ['run', 'build'], projectDir, (line) => {
-    if (line.includes('transforming')) emit('building', 'Compiling modules...')
-    if (line.includes('rendering')) emit('building', 'Rendering chunks...')
-    if (line.includes('built in')) {
-      const time = line.match(/built in (.+)/)
-      emit('building', `Build complete! ${time ? time[1] : ''}`)
-    }
-  })
+    emit('building', 'Building with Vite...')
+    await runCommand('npm', ['run', 'build'], projectDir, (line) => {
+      if (line.includes('transforming')) emit('building', 'Compiling modules...')
+      if (line.includes('rendering')) emit('building', 'Rendering chunks...')
+      if (line.includes('built in')) {
+        const time = line.match(/built in (.+)/)
+        emit('building', `Build complete! ${time ? time[1] : ''}`)
+      }
+    })
+  } catch (err) {
+    // Clean up partial build directory on failure
+    try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch {}
+    throw err
+  }
 
   emit('deploying', 'Going live...')
   return subdomain
@@ -102,14 +105,12 @@ function runCommand(cmd, args, cwd, onLine) {
     let stderr = ''
 
     proc.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(Boolean)
-      lines.forEach(line => onLine && onLine(line))
+      data.toString().split('\n').filter(Boolean).forEach(line => onLine?.(line))
     })
 
     proc.stderr.on('data', (data) => {
       stderr += data.toString()
-      const lines = data.toString().split('\n').filter(Boolean)
-      lines.forEach(line => onLine && onLine(line))
+      data.toString().split('\n').filter(Boolean).forEach(line => onLine?.(line))
     })
 
     proc.on('close', (code) => {
