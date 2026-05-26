@@ -31,7 +31,97 @@ async function createBuildJob({ projectId, userId, plan }) {
   return job
 }
 
-// POST /api/build — create job
+// Detect design intent from a refinement prompt and expand it into
+// specific, actionable instructions the model can act on precisely.
+function buildDesignInstructions(prompt) {
+  const instructions = []
+
+  // Dark mode
+  if (/dark(\s*(mode|theme|layout|design|ui|look))?|night\s*mode/i.test(prompt)) {
+    instructions.push(
+      'Apply a COMPLETE dark theme throughout every element: ' +
+      'bg-slate-950 or bg-zinc-950 for page background, ' +
+      'bg-slate-900 or bg-zinc-900 for cards/surfaces, ' +
+      'text-white or text-slate-100 for headings, ' +
+      'text-slate-400 for body text, ' +
+      'border-slate-800 for borders, ' +
+      'bg-slate-800 for inputs. ' +
+      'Zero white or light surfaces — every background must be dark.'
+    )
+  }
+
+  // Light mode
+  if (/light(\s*(mode|theme|layout|design|ui|look))?/i.test(prompt)) {
+    instructions.push(
+      'Apply a clean light theme: bg-white page background, bg-slate-50 cards, ' +
+      'text-slate-900 headings, text-slate-600 body, border-slate-200 borders, ' +
+      'white inputs with slate-300 borders.'
+    )
+  }
+
+  // Professional / premium / polished
+  if (/professional|premium|polished|sophisticated|executive|enterprise/i.test(prompt)) {
+    instructions.push(
+      'Elevate visual quality significantly: ' +
+      'increase whitespace and padding (py-8 min for sections), ' +
+      'stronger typographic hierarchy (text-3xl+ headings, clear size steps), ' +
+      'refined card styling (rounded-xl, shadow-md, proper border), ' +
+      'polished buttons (px-6 py-3, rounded-lg, hover states, transitions), ' +
+      'consistent spacing system throughout.'
+    )
+  }
+
+  // Modern / clean / minimal
+  if (/modern|clean|minimal|minimalist|simple\s+design|sleek/i.test(prompt)) {
+    instructions.push(
+      'Apply modern minimal design: generous whitespace, clean sans-serif typography, ' +
+      'subtle borders instead of heavy shadows, simple color palette (1-2 accent colors), ' +
+      'remove decorative clutter, focus on content clarity.'
+    )
+  }
+
+  // Full redesign / new layout
+  if (/redesign|new\s+layout|different\s+layout|redo|revamp|overhaul|from\s+scratch/i.test(prompt)) {
+    instructions.push(
+      'This is a FULL redesign — substantially change the layout structure and visual approach. ' +
+      'Do not just restyle the existing layout. Rethink the page/component structure.'
+    )
+  }
+
+  // Better / improve / enhance
+  if (/better|improve|enhance|nicer|prettier|more\s+beautiful|upgrade/i.test(prompt)) {
+    instructions.push(
+      'Meaningfully improve the visual quality: better typography scale, ' +
+      'proper spacing rhythm, more refined color usage, better component proportions, ' +
+      'hover/focus states on all interactive elements, polished micro-details.'
+    )
+  }
+
+  // Colorful / vibrant / gradient
+  if (/colorf|vibrant|gradient|colorful/i.test(prompt)) {
+    instructions.push(
+      'Add tasteful color: gradient heading text (bg-gradient-to-r with background-clip), ' +
+      'colored accent elements, vibrant but professional palette. ' +
+      'Not garish — harmonious and intentional.'
+    )
+  }
+
+  // Animations / transitions
+  if (/animat|transit|smooth|motion/i.test(prompt)) {
+    instructions.push(
+      'Add smooth transitions: transition-all duration-200 on all interactive elements, ' +
+      'hover:scale-105 on cards, hover:-translate-y-1 on buttons, ' +
+      'smooth color transitions on focus states.'
+    )
+  }
+
+  return instructions.length > 0
+    ? '\n\nDesign requirements (apply ALL of these precisely):\n' +
+      instructions.map((inst, i) => `${i + 1}. ${inst}`).join('\n')
+    : ''
+}
+
+// POST /api/build — create job from approved plan
 router.post('/', requireAuth, async (req, res) => {
   const { plan, projectId } = req.body
   const userId = req.user.id
@@ -49,7 +139,7 @@ router.post('/', requireAuth, async (req, res) => {
   }
 })
 
-// POST /api/build/direct — create a hidden plan and build immediately
+// POST /api/build/direct — build immediately without a plan approval step
 router.post('/direct', requireAuth, async (req, res) => {
   const { prompt, projectId } = req.body
   const userId = req.user.id
@@ -64,8 +154,9 @@ router.post('/direct', requireAuth, async (req, res) => {
       .eq('id', projectId)
       .eq('user_id', userId)
       .single()
-    if (!project) return res.status(404).json({ error: 'Project not found' })
+    if (!project) return res.status(404).json({ error: 'Project not found' })\
 
+    // Fetch current App.jsx for context
     const { data: appFile } = await supabase
       .from('project_files')
       .select('content')
@@ -74,21 +165,36 @@ router.post('/direct', requireAuth, async (req, res) => {
       .maybeSingle()
 
     const currentCode = appFile?.content
-      ? `\n\nCurrent src/App.jsx:\n\`\`\`jsx\n${appFile.content.slice(0, 45000)}\n\`\`\``
+      ? `\n\nCurrent src/App.jsx (preserve all working functionality):\n\`\`\`jsx\n${appFile.content.slice(0, 45000)}\n\`\`\``
       : ''
 
+    // Detect and expand design intent into specific instructions
+    const designInstructions = buildDesignInstructions(prompt)
+
+    const understanding =
+      `Update the existing app "${project.name || 'Untitled App'}" based on this request: ${prompt}.` +
+      designInstructions +
+      currentCode +
+      `\n\nReturn a complete updated React component. ` +
+      `Preserve all existing functionality and logic unless the request changes it. ` +
+      `Apply every design instruction precisely and comprehensively — ` +
+      `if dark mode is requested, EVERY element must be dark with no exceptions.`
+
     const plan = {
-      understanding: `Update the existing app "${project.name || 'Untitled App'}" based on this user request: ${prompt}.${currentCode}\n\nReturn a complete updated src/App.jsx. Preserve existing functionality unless the user asked to change it. If the request asks for better styling, premium UI, landing page polish, or improved first impression, significantly improve visual quality while keeping the app usable.`,
+      understanding,
       is_complex: false,
       app_name: project.name || 'Updated App',
+      app_category: 'app',   // keeps single-file output for refinements
+      color_theme: /dark|night/i.test(prompt) ? 'dark' : 'light',
       current_phase: 1,
       total_phases: 1,
       steps: [
-        'Understand the requested change',
-        'Update the existing React app while preserving unrelated behavior',
+        `Apply user request: "${prompt}"`,
+        'Preserve all existing logic and functionality',
+        'Apply all design changes comprehensively to every element',
         'Return the complete updated src/App.jsx'
       ],
-      files: ['src/App.jsx'],
+      files: ['src/App.jsx'],  // refinements always single-file
       questions: [],
       out_of_scope: [],
       estimated_credits: 2.5,
@@ -105,7 +211,7 @@ router.post('/direct', requireAuth, async (req, res) => {
   }
 })
 
-// GET /api/build/stream/:jobId — SSE stream (auth via ?token= query param)
+// GET /api/build/stream/:jobId — SSE stream
 router.get('/stream/:jobId', requireAuth, async (req, res) => {
   const { jobId } = req.params
   const userId = req.user.id
