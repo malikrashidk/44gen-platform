@@ -893,6 +893,7 @@ ${answerText}`
         ? { ...m, content: { ...m.content, approved: true, collapsed: true } }
         : m
     ))
+    setPromptMode('build')
     startBuild(plan)
     setPlan(null)
   }
