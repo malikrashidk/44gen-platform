@@ -85,7 +85,8 @@ TECHNICAL RULES:
 - react-router-dom only if routing is needed
 - Only these lucide-react icons (no others): Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield
 - Only packages: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
-- Return ONLY raw JSX starting with imports. No markdown, no backticks.`
+- MUST have exactly one default export: `export default function App()` or `export default App` at the end
+- Return ONLY raw JSX starting with imports. No markdown, no backticks, no explanations.`
     })
 
     const steps = plan.is_complex

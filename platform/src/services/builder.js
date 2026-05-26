@@ -71,7 +71,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`)
 
-  fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), code)
+  // Safety net: ensure code has a default export so Vite doesn't fail
+  let safeCode = code
+  if (!code.includes('export default')) {
+    // Try to find the main function/component name and append export
+    const match = code.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
+    if (match) {
+      safeCode = code + `\n\nexport default ${match[1]}`
+    } else {
+      // Wrap the whole thing in an App component as last resort
+      safeCode = code + '\n\nexport default App'
+    }
+  }
+  fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), safeCode)
 
   try {
     emit('installing', 'Installing dependencies...')
