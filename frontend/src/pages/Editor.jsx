@@ -56,6 +56,8 @@ export default function Editor() {
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef(null)
   const streamFinishedRef = useRef(false)
+  const streamEventSeenRef = useRef(false)
+  const streamWatchdogRef = useRef(null)
   const buildStartedRef = useRef(false) // prevent double-approve
 
   const d = darkMode
@@ -80,6 +82,7 @@ export default function Editor() {
     stopCodeFlush()
     if (esRef.current) esRef.current.close()
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+    if (streamWatchdogRef.current) clearTimeout(streamWatchdogRef.current)
   }, [])
 
   const toggleDarkMode = () => {
@@ -211,17 +214,32 @@ export default function Editor() {
     if (streamFinishedRef.current) return
     if (esRef.current) esRef.current.close()
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+    if (streamWatchdogRef.current) clearTimeout(streamWatchdogRef.current)
 
     codeChunksRef.current = ''
     codeMessageIdRef.current = null
+    streamEventSeenRef.current = false
 
     const token = sessionRef.current?.access_token
     const es = new EventSource(`${API}/api/build/stream/${jobId}?token=${token}`)
     esRef.current = es
 
+    es.onopen = () => {
+      setDetailsLog(prev => [...prev, { icon: '🔌', msg: 'Live stream connected', color: '#7c3aed', ts: Date.now() }])
+    }
+
     es.onmessage = (e) => {
+      streamEventSeenRef.current = true
       try { handleStreamEventRef.current?.(JSON.parse(e.data)) } catch {}
     }
+
+    streamWatchdogRef.current = setTimeout(() => {
+      if (!streamFinishedRef.current && stageRef.current === 'building' && !streamEventSeenRef.current) {
+        addMessage('assistant', 'Build started. Waiting for the live stream...', 'status')
+        setDetailsLog(prev => [...prev, { icon: '⏱️', msg: 'Waiting for first build update...', color: '#f59e0b', ts: Date.now() }])
+        loadBuildProgress()
+      }
+    }, 8000)
 
     es.onerror = () => {
       if (streamFinishedRef.current) {
@@ -410,9 +428,12 @@ export default function Editor() {
     buildStartedRef.current = true
     setLoading(true)
     setStage('building')
+    setActiveTab('details')
     setDetailsLog([])
     setFullCode('')
     codeChunksRef.current = ''
+    addMessage('assistant', 'Build approved. Creating build job...', 'status')
+    setDetailsLog([{ icon: '✅', msg: 'Plan approved', color: '#10b981', ts: Date.now() }])
     await saveConversation('assistant', `Building: ${buildPlan.app_name}`, 'plan_approved')
 
     try {
@@ -430,6 +451,8 @@ export default function Editor() {
       }
 
       setMessages(prev => prev.filter(m => m.type !== 'plan'))
+      addMessage('assistant', 'Build job created. Connecting to live stream...', 'status')
+      setDetailsLog(prev => [...prev, { icon: '⏳', msg: 'Build job created', color: '#f59e0b', ts: Date.now() }])
       reconnectAttemptsRef.current = 0
       streamFinishedRef.current = false
       connectToStream(job_id)

@@ -68,13 +68,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`)
 
-  let safeCode = code
+  let safeCode = normalizeGeneratedCode(code)
   if (!code.includes('export default')) {
     const match = code.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
     if (match) {
-      safeCode = code + `\n\nexport default ${match[1]}`
+      safeCode = safeCode + `\n\nexport default ${match[1]}`
     } else {
-      safeCode = code + '\n\nexport default App'
+      safeCode = safeCode + '\n\nexport default App'
     }
   }
   fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), safeCode)
@@ -102,6 +102,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
   emit('deploying', 'Going live...')
   return subdomain
+}
+
+function normalizeGeneratedCode(code) {
+  return code.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (match, attrs, body) => {
+    if (!body.trim() || body.trimStart().startsWith('{`')) return match
+    const escaped = body.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+    return `<style${attrs}>{\`${escaped}\`}</style>`
+  })
 }
 
 function runCommand(cmd, args, cwd, onLine) {

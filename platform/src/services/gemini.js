@@ -82,6 +82,8 @@ TECHNICAL RULES:
 - Only these lucide-react icons (no others): Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield
 - Only packages: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
 - MUST have exactly one default export: \`export default function App()\` or \`export default App\` at the end
+- If adding CSS in a <style> tag, it MUST be JSX-safe: \`<style>{\`css here\`}</style>\`. Never put raw CSS directly between <style> and </style>.
+- Prefer Tailwind classes and inline style objects over <style> tags.
 - Return ONLY raw JSX starting with imports. No markdown, no backticks, no explanations.`
     })
 
