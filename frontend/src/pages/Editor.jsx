@@ -6,7 +6,8 @@ import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
-  Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw
+  Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw,
+  Download, FolderOpen
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -37,6 +38,10 @@ export default function Editor() {
   const [newName, setNewName] = useState('')
   const [detailsLog, setDetailsLog] = useState([])
   const [fullCode, setFullCode] = useState('')
+  const [codeFiles, setCodeFiles] = useState([])
+  const [selectedCodeFile, setSelectedCodeFile] = useState('')
+  const [codeFilesLoading, setCodeFilesLoading] = useState(false)
+  const [downloadingProject, setDownloadingProject] = useState(false)
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
@@ -72,6 +77,7 @@ export default function Editor() {
   useEffect(() => { fetchProject() }, [projectId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (projectId) { loadConversations(); loadBuildProgress(); checkActiveBuildJob() } }, [projectId])
+  useEffect(() => { if (projectId && activeTab === 'code') loadProjectFiles() }, [projectId, activeTab])
 
   // Reset iframe status when preview changes
   useEffect(() => {
@@ -161,7 +167,67 @@ export default function Editor() {
     }).filter(Boolean)
 
     if (latestCode) setFullCode(latestCode)
+    if (latestCode && codeFiles.length === 0) {
+      setCodeFiles([{ path: 'src/App.jsx', content: latestCode }])
+      setSelectedCodeFile('src/App.jsx')
+    }
     setMessages(loaded)
+  }
+
+  const loadProjectFiles = async () => {
+    if (!sessionRef.current?.access_token) return
+    setCodeFilesLoading(true)
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/files`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load files')
+      const files = data.files || []
+      setCodeFiles(files)
+      const preferred = files.find(f => f.path === selectedCodeFile)?.path ||
+        files.find(f => f.path === 'src/App.jsx')?.path ||
+        files[0]?.path ||
+        ''
+      setSelectedCodeFile(preferred)
+      const appFile = files.find(f => f.path === 'src/App.jsx')
+      if (appFile?.content) setFullCode(appFile.content)
+    } catch {
+      if (fullCode && codeFiles.length === 0) {
+        setCodeFiles([{ path: 'src/App.jsx', content: fullCode }])
+        setSelectedCodeFile('src/App.jsx')
+      }
+    } finally {
+      setCodeFilesLoading(false)
+    }
+  }
+
+  const downloadProjectZip = async () => {
+    if (!sessionRef.current?.access_token || downloadingProject) return
+    setDownloadingProject(true)
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/download`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to download project')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const name = (project?.name || '44gen-project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || '44gen-project'
+      link.href = url
+      link.download = `${name}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      addMessage('assistant', err.message || 'Failed to download project.', 'error')
+    } finally {
+      setDownloadingProject(false)
+    }
   }
 
   const detailFromEvent = (event) => {
@@ -454,6 +520,7 @@ export default function Editor() {
         reconnectAttemptsRef.current = 0
         fetchProfile(user.id)
         fetchProject()
+        loadProjectFiles()
         addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
           ...prev
@@ -646,6 +713,10 @@ export default function Editor() {
   }
 
   const isBuilding = stage === 'building' || stage === 'planning'
+  const visibleCodeFiles = codeFiles.length
+    ? codeFiles
+    : (fullCode ? [{ path: 'src/App.jsx', content: fullCode }] : [])
+  const selectedFile = visibleCodeFiles.find(file => file.path === selectedCodeFile) || visibleCodeFiles[0]
 
   // ── Message renderers ──────────────────────────────────
   const renderMessage = (msg) => {
@@ -1215,11 +1286,58 @@ export default function Editor() {
           )}
 
           {activeTab === 'code' && (
-            <div style={{ flex: 1, overflow: 'auto', background: d ? '#0d1117' : '#f6f8fa' }}>
-              {fullCode ? (
-                <pre style={{ margin: 0, padding: 16, fontSize: 11, fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {fullCode}
-                </pre>
+            <div style={{ flex: 1, display: 'flex', minHeight: 0, background: d ? '#0d1117' : '#f6f8fa' }}>
+              {visibleCodeFiles.length ? (
+                <>
+                  <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#0d1117' : '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div style={{ height: 42, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: text, fontSize: 12, fontWeight: 600, minWidth: 0 }}>
+                        <FolderOpen size={13} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Project files</span>
+                      </div>
+                      <button onClick={downloadProjectZip}
+                        disabled={downloadingProject}
+                        title="Download project ZIP"
+                        style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#161b22' : '#f6f8fa', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: downloadingProject ? 'default' : 'pointer', opacity: downloadingProject ? 0.6 : 1 }}>
+                        {downloadingProject ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Download size={12} />}
+                      </button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+                      {visibleCodeFiles.map(file => {
+                        const active = file.path === selectedFile?.path
+                        return (
+                          <button key={file.path} onClick={() => setSelectedCodeFile(file.path)}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 7,
+                              padding: '7px 8px',
+                              borderRadius: 6,
+                              border: 'none',
+                              background: active ? 'rgba(124,58,237,0.12)' : 'transparent',
+                              color: active ? '#7c3aed' : muted,
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              textAlign: 'left',
+                              fontFamily: 'monospace'
+                            }}>
+                            <FileCode size={12} style={{ flexShrink: 0 }} />
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.path}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ height: 42, padding: '0 12px', display: 'flex', alignItems: 'center', borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}`, color: muted, fontSize: 12, fontFamily: 'monospace' }}>
+                      {codeFilesLoading ? 'Loading files...' : selectedFile?.path}
+                    </div>
+                    <pre style={{ flex: 1, overflow: 'auto', margin: 0, padding: 16, fontSize: 11, fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {selectedFile?.content || ''}
+                    </pre>
+                  </div>
+                </>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: muted }}>
                   <Code size={22} style={{ opacity: 0.3, marginBottom: 6 }} />

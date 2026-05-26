@@ -8,6 +8,7 @@ import 'dotenv/config'
 
 import planRoute from './routes/plan.js'
 import buildRoute from './routes/build.js'
+import projectsRoute from './routes/projects.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -42,6 +43,7 @@ const planLimiter = rateLimit({
 
 app.use('/api/plan', planLimiter, planRoute)
 app.use('/api/build', buildLimiter, buildRoute)
+app.use('/api/projects', projectsRoute)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
 
