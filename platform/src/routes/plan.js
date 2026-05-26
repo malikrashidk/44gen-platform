@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { createClient } from '@supabase/supabase-js'
-import { generatePlan } from '../services/gemini.js'
+import { generatePlan, isTemporaryGeminiError } from '../services/gemini.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
@@ -58,7 +58,13 @@ router.post('/', requireAuth, async (req, res) => {
     res.json({ ...plan, credits_used, tokens_used })
   } catch (error) {
     console.error('[Plan] Error:', error)
-    res.status(500).json({ error: 'Failed to generate plan' })
+    if (isTemporaryGeminiError(error)) {
+      return res.status(503).json({
+        error: 'AI is busy right now. Please try again in a moment.',
+        retryable: true
+      })
+    }
+    res.status(500).json({ error: 'Failed to generate plan', retryable: true })
   }
 })
 

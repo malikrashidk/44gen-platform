@@ -478,10 +478,8 @@ export default function Editor() {
 
   handleStreamEventRef.current = handleStreamEvent
 
-  const handleSubmit = async (e) => {
-    e?.preventDefault()
-    if (!prompt.trim() || loading) return
-    const userPrompt = prompt.trim()
+  const submitPromptText = async (userPrompt) => {
+    if (!userPrompt?.trim() || loading) return
     setPrompt('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setLoading(true)
@@ -501,7 +499,11 @@ export default function Editor() {
 
       if (planData.error) {
         setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', planData.error, 'error')
+        addMessage('assistant', {
+          message: planData.error,
+          retryPrompt: userPrompt,
+          retryable: planData.retryable !== false
+        }, 'error')
         setStage('idle')
         setLoading(false)
         return
@@ -516,10 +518,20 @@ export default function Editor() {
       ])
     } catch {
       setMessages(prev => prev.filter(m => m.type !== 'status'))
-      addMessage('assistant', 'Something went wrong. Try again.', 'error')
+      addMessage('assistant', {
+        message: 'Something went wrong. Try again.',
+        retryPrompt: userPrompt,
+        retryable: true
+      }, 'error')
       setStage('idle')
     }
     setLoading(false)
+  }
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    if (!prompt.trim() || loading) return
+    await submitPromptText(prompt.trim())
   }
 
   const startBuild = async (buildPlan) => {
@@ -699,16 +711,24 @@ export default function Editor() {
     )
 
     if (msg.type === 'error') return (
-      <div key={msg.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
-        <div style={{ display: 'flex', gap: 8, color: '#f87171', marginBottom: 8 }}>
-          <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-          {msg.content}
-        </div>
-        <button onClick={handleRetry}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>
-          <RefreshCcw size={11} /> Try again
-        </button>
-      </div>
+      (() => {
+        const error = typeof msg.content === 'string' ? { message: msg.content, retryable: true } : msg.content
+        return (
+          <div key={msg.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 8, color: '#f87171', marginBottom: 8 }}>
+              <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+              {error.message}
+            </div>
+            {error.retryable && (
+              <button onClick={() => error.retryPrompt ? submitPromptText(error.retryPrompt) : handleRetry()}
+                disabled={loading}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', padding: '4px 10px', borderRadius: 6, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}>
+                <RefreshCcw size={11} /> Try again
+              </button>
+            )}
+          </div>
+        )
+      })()
     )
 
     if (msg.type === 'plan') {

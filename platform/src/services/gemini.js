@@ -8,7 +8,7 @@ const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || '')
   .filter(Boolean)
 const MODEL_CHAIN = [...new Set([PRIMARY_MODEL, ...FALLBACK_MODELS])]
 
-function isRetryableGeminiError(err) {
+export function isTemporaryGeminiError(err) {
   return err.status === 429 ||
     err.status >= 500 ||
     err.message?.includes('UNAVAILABLE') ||
@@ -20,7 +20,7 @@ async function withRetry(fn, retries = 4, delayMs = 1200) {
     try {
       return await fn()
     } catch (err) {
-      if (i === retries || !isRetryableGeminiError(err)) throw err
+      if (i === retries || !isTemporaryGeminiError(err)) throw err
       const jitter = Math.floor(Math.random() * 350)
       await new Promise(r => setTimeout(r, delayMs * Math.pow(2, i) + jitter))
     }
@@ -34,7 +34,7 @@ async function withModelFallback(createRequest, models = MODEL_CHAIN) {
       return await withRetry(() => createRequest(modelName))
     } catch (err) {
       lastError = err
-      if (!isRetryableGeminiError(err)) throw err
+      if (!isTemporaryGeminiError(err)) throw err
       console.warn(`[Gemini] ${modelName} unavailable: ${err.message}`)
     }
   }
@@ -50,8 +50,7 @@ function extractJson(text) {
 }
 
 export async function generatePlan(prompt) {
-  try {
-    return await withModelFallback(async (modelName) => {
+  return withModelFallback(async (modelName) => {
       const model = genAI.getGenerativeModel({
         model: modelName,
         systemInstruction: `You are a senior software architect analyzing a user's app request.
@@ -86,11 +85,6 @@ Return ONLY valid JSON, no markdown, no backticks:
         tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
       }
     })
-  } catch (err) {
-    if (!isRetryableGeminiError(err)) throw err
-    console.warn('[Gemini] Falling back to local plan:', err.message)
-    return { plan: createFallbackPlan(prompt), tokens_used: 0, fallback: true }
-  }
 }
 
 export async function generateCodeStream(plan, phase, onChunk, onThought) {
@@ -200,35 +194,4 @@ Files: ${filesWritten.join(', ')}`
       }
     }
   })
-}
-
-function createFallbackPlan(prompt) {
-  const words = prompt
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'app', 'create', 'build'].includes(word))
-
-  const appName = words.length
-    ? words.slice(0, 4).map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
-    : 'Generated App'
-
-  return {
-    understanding: prompt,
-    is_complex: false,
-    app_name: appName,
-    current_phase: 1,
-    total_phases: 1,
-    steps: [
-      'Create a focused React interface for the requested app',
-      'Add the main form, inputs, and interactive state',
-      'Show calculated results or generated output clearly',
-      'Apply clean responsive styling'
-    ],
-    files: ['src/App.jsx'],
-    questions: [],
-    out_of_scope: ['Backend persistence', 'User accounts', 'Payment integration'],
-    estimated_credits: 2.5,
-    phases: null
-  }
 }
