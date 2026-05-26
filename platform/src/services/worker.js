@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { generateCodeStream, generateSummary } from './gemini.js'
+import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemini.js'
 import { buildAndDeploy } from './builder.js'
 
 const supabase = createClient(
@@ -92,6 +92,26 @@ export async function processJob(jobId) {
 }
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000
+const MAX_REPAIR_ATTEMPTS = 2
+
+function isRepairableBuildError(err) {
+  const message = String(err?.message || err || '')
+  if (/npm ERR!|ENOSPC|EACCES|ETIMEDOUT|ECONNRESET/i.test(message)) return false
+  return /vite|esbuild|transform failed|src\/App\.jsx|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
+}
+
+async function saveProjectFile(projectId, code) {
+  await supabase.from('project_files')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('file_path', 'src/App.jsx')
+  await supabase.from('project_files').insert({
+    project_id: projectId,
+    file_path: 'src/App.jsx',
+    content: code,
+    updated_at: new Date().toISOString()
+  })
+}
 
 async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
@@ -118,7 +138,7 @@ async function runJob(jobId) {
     emit('start', { message: 'Starting code generation...' })
     emit('code_start', { file: 'src/App.jsx', message: 'Writing src/App.jsx...' })
 
-    const { code, tokens_used } = await generateCodeStream(
+    const generated = await generateCodeStream(
       job.plan,
       job.plan.current_phase || 1,
       (chunk) => emit('code_chunk', { text: chunk }),
@@ -127,16 +147,44 @@ async function runJob(jobId) {
 
     emit('code_end', { message: 'Code generation complete' })
 
-    await supabase.from('project_files')
-      .delete()
-      .eq('project_id', job.project_id)
-      .eq('file_path', 'src/App.jsx')
-    await supabase.from('project_files').insert({
-      project_id: job.project_id,
-      file_path: 'src/App.jsx',
-      content: code,
-      updated_at: new Date().toISOString()
-    })
+    let code = generated.code
+    let tokens_used = generated.tokens_used
+    await saveProjectFile(job.project_id, code)
+
+    let subdomain
+    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      try {
+        subdomain = await buildAndDeploy(
+          job.project_id,
+          code,
+          (progress) => emit(progress.type, { message: progress.message })
+        )
+        break
+      } catch (buildErr) {
+        if (attempt >= MAX_REPAIR_ATTEMPTS || !isRepairableBuildError(buildErr)) throw buildErr
+
+        const repairAttempt = attempt + 1
+        emit('repair_start', {
+          attempt: repairAttempt,
+          message: `Fixing src/App.jsx after build error...`
+        })
+        console.warn(`[Worker] Repairing generated code for job ${jobId}, attempt ${repairAttempt}: ${buildErr.message}`)
+
+        const repaired = await repairGeneratedCode({
+          plan: job.plan,
+          code,
+          error: buildErr.message,
+          attempt: repairAttempt
+        })
+        code = repaired.code
+        tokens_used += repaired.tokens_used || 0
+        await saveProjectFile(job.project_id, code)
+        emit('repair_done', {
+          attempt: repairAttempt,
+          message: `Updated src/App.jsx. Rebuilding...`
+        })
+      }
+    }
 
     await supabase.from('conversations').insert({
       project_id: job.project_id,
@@ -144,12 +192,6 @@ async function runJob(jobId) {
       content: code,
       type: 'code'
     })
-
-    const subdomain = await buildAndDeploy(
-      job.project_id,
-      code,
-      (progress) => emit(progress.type, { message: progress.message })
-    )
 
     const credits_used = parseFloat((tokens_used / 10000).toFixed(2))
 

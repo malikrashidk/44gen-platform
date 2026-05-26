@@ -275,6 +275,8 @@ export default function Editor() {
       case 'code_end': return { icon: '✅', msg: 'Code generation complete', color: '#10b981', ts }
       case 'installing': return { icon: '📦', msg: event.message, color: '#6366f1', ts }
       case 'building': return { icon: '🔨', msg: event.message, color: '#8b5cf6', ts }
+      case 'repair_start': return { icon: '🛠️', msg: event.message, color: '#BC6045', ts }
+      case 'repair_done': return { icon: '✅', msg: event.message, color: '#10b981', ts }
       case 'deploying': return { icon: '🚀', msg: 'Deploying...', color: '#06b6d4', ts }
       case 'summarizing': return { icon: '📝', msg: 'Generating summary...', color: '#84cc16', ts }
       case 'done':
@@ -520,6 +522,29 @@ export default function Editor() {
           step: { label: event.message, tone: event.message?.includes('complete') ? 'done' : 'active' }
         })
         addDetail('🔨', event.message, '#8b5cf6')
+        break
+
+      case 'repair_start':
+        upsertBuildStream({
+          heading: event.message || 'Fixing src/App.jsx after build error...',
+          subtext: '',
+          phase: 'code',
+          file: 'src/App.jsx',
+          actionVerb: 'Fixing',
+          step: { label: event.message || 'Repairing generated code', tone: 'active' }
+        })
+        addDetail('🛠️', event.message || 'Repairing generated code', '#BC6045')
+        break
+
+      case 'repair_done':
+        upsertBuildStream({
+          heading: event.message || 'Updated src/App.jsx. Rebuilding...',
+          subtext: '',
+          phase: 'building',
+          step: { label: event.message || 'Repair complete', tone: 'done' }
+        })
+        loadProjectFiles()
+        addDetail('✅', event.message || 'Repair complete', '#10b981')
         break
 
       case 'deploying':

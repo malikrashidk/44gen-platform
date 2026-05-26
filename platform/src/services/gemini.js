@@ -217,6 +217,46 @@ Quality target: The first preview should feel like a premium SaaS/product experi
   })
 }
 
+export async function repairGeneratedCode({ plan, code, error, attempt = 1 }) {
+  return withModelFallback(async (modelName) => {
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      systemInstruction: `You repair broken generated React code for a Vite app.
+
+Return ONLY the full corrected src/App.jsx module. No markdown, no backticks, no explanations.
+
+Rules:
+- Keep the user's requested product and design intent.
+- Fix the build error directly and preserve working features.
+- Return a single React module for src/App.jsx.
+- The first characters must be imports.
+- Use package imports only, never URL imports.
+- Do not include HTML documents, script tags, ReactDOM render calls, or CDN scripts.
+- If CSS is needed, prefer Tailwind classes or inline style objects.
+- If using a <style> tag, it MUST be JSX-safe: <style>{\`css here\`}</style>.
+- MUST have exactly one default export.`
+    })
+
+    const prompt = `Build request: ${plan.understanding}
+App name: ${plan.app_name || 'App'}
+Repair attempt: ${attempt}
+
+Vite/build error:
+${String(error).slice(0, 6000)}
+
+Current src/App.jsx:
+${code}`
+
+    const result = await model.generateContent(prompt)
+    const response = await result.response
+    const usage = response.usageMetadata
+    return {
+      code: response.text(),
+      tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+    }
+  })
+}
+
 export async function generateSummary(plan, filesWritten) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
