@@ -1696,7 +1696,7 @@ ${answerText}`
                   )}
                   <iframe
                     key={previewKey}
-                    src={previewUrl}
+                    src={previewUrl ? `${previewUrl}?v=${previewKey}` : previewUrl}
                     style={{ width: '100%', height: '100%', border: 'none', opacity: iframeStatus === 'loaded' ? 1 : 0 }}
                     title="Preview"
                     onLoad={() => setIframeStatus('loaded')}
