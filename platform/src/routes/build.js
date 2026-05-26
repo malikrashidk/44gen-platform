@@ -78,7 +78,7 @@ router.post('/direct', requireAuth, async (req, res) => {
       : ''
 
     const plan = {
-      understanding: `Update the existing app "${project.name || 'Untitled App'}" based on this user request: ${prompt}.${currentCode}\n\nReturn a complete updated src/App.jsx. Preserve existing functionality unless the user asked to change it.`,
+      understanding: `Update the existing app "${project.name || 'Untitled App'}" based on this user request: ${prompt}.${currentCode}\n\nReturn a complete updated src/App.jsx. Preserve existing functionality unless the user asked to change it. If the request asks for better styling, premium UI, landing page polish, or improved first impression, significantly improve visual quality while keeping the app usable.`,
       is_complex: false,
       app_name: project.name || 'Updated App',
       current_phase: 1,

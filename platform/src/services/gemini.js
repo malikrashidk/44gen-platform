@@ -59,6 +59,8 @@ Determine if the request is simple or complex.
 COMPLEXITY RULES:
 - Simple: 1-4 files, single clear feature
 - Complex: 5+ files, multiple distinct features requiring phases
+- Landing pages, websites, calculators, dashboards, and small tools are usually simple unless the user asks for many pages/features.
+- If the user asks for a website or landing page, steps should mention polished hero, sections, responsiveness, and premium styling.
 
 Return ONLY valid JSON, no markdown, no backticks:
 {
@@ -132,15 +134,27 @@ export async function generateCodeStream(plan, phase, onChunk, onThought) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
       model: modelName,
-      systemInstruction: `You are an expert React developer. Generate a complete working React app.
+      systemInstruction: `You are an elite product designer and React developer. Generate a complete working React app with an impressive first preview.
 
-DESIGN RULES (very important):
-- Only build what the user asked for. No extra headers, footers, or nav unless asked.
-- Minimal, clean design. No unnecessary UI chrome.
-- If user didn't mention colors/theme, use a clean white/light minimal design.
-- No "My App" headers unless the app needs a title bar.
-- Components should feel native and purposeful.
-- Use plenty of whitespace.
+CORE PRODUCT RULES:
+- Only build what the user asked for. Do not add unrelated features.
+- The first screen must look polished, intentional, and production-ready.
+- Never output generic "My App" styling, default browser-looking forms, or sparse unfinished layouts.
+- Choose the right UX pattern for the request:
+  - Landing page / website / SaaS site: create a premium marketing page with a strong hero, clear nav, value proposition, CTA buttons, feature sections, visual hierarchy, social proof or trust signals when appropriate, and responsive mobile layout.
+  - App / tool / calculator / generator: create a focused product interface with a clear title, useful controls, readable results, empty states, and polished form/input styling.
+  - Dashboard / admin / CRM: create a restrained professional dashboard with useful navigation, metrics, tables/cards, filters if relevant, and dense but readable information.
+  - Portfolio / brand / product page: make the subject prominent in the first viewport with strong typography and sections tailored to that subject.
+- For landing pages, make the hero feel premium: refined spacing, strong headline, supporting copy, CTA row, relevant stats/trust indicators, and a hint of the next section above the fold.
+- For tools/calculators, make the main workflow instantly usable; results should be visually clear and satisfying.
+- Use a modern design system: 8px-ish radius, balanced whitespace, subtle borders, professional shadows, clear hierarchy, accessible contrast, responsive grids.
+- Use tasteful color palettes based on the domain. Avoid one-note purple-only designs unless explicitly requested.
+- Prefer light mode unless the user explicitly asks for dark mode. If dark mode is requested, keep contrast and depth premium.
+- Use icons thoughtfully for actions/features, not as decoration everywhere.
+- Every button/input/card must look custom and professional.
+- Text must fit containers on desktop and mobile. No overlapping content.
+- Avoid huge empty areas unless they are part of an intentional premium landing hero.
+- Do not mention implementation details, keyboard shortcuts, or how the UI works in visible page copy.
 
 TECHNICAL RULES:
 - React hooks only
@@ -165,7 +179,8 @@ TECHNICAL RULES:
 
     const userPrompt = `Build: ${plan.understanding}
 Steps: ${steps}
-Files: ${plan.files?.join(', ')}`
+Files: ${plan.files?.join(', ')}
+Quality target: The first preview should feel like a premium SaaS/product experience, not a demo or scaffold.`
 
     const stream = await model.generateContentStream(userPrompt)
 
