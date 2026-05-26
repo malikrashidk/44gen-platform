@@ -4,49 +4,35 @@ import { spawn } from 'node:child_process'
 
 const USERS_DIR = '/var/www/44gen/users'
 const NPM_CACHE_DIR = '/var/www/44gen/.npm-cache'
+const TEMPLATE_DIR = '/var/www/44gen/.build-template'
+let templateReadyPromise = null
 
-export async function buildAndDeploy(projectId, code, onProgress) {
-  const subdomain = `app-${projectId.slice(0, 8)}`
-  const projectDir = path.join(USERS_DIR, subdomain)
-
-  const emit = (type, message) => {
-    if (onProgress) onProgress({ type, message })
+const BASE_PACKAGE = {
+  name: '44gen-build-template',
+  version: '1.0.0',
+  type: 'module',
+  scripts: { build: 'vite build' },
+  dependencies: {
+    'react': '^18.2.0',
+    'react-dom': '^18.2.0',
+    'react-router-dom': '^6.8.0',
+    'lucide-react': '^0.460.0',
+    'recharts': '^2.12.0',
+    'axios': '^1.6.0',
+    'date-fns': '^3.0.0',
+    'clsx': '^2.0.0'
+  },
+  devDependencies: {
+    '@vitejs/plugin-react': '^4.0.0',
+    'vite': '^5.0.0'
   }
+}
 
-  if (fs.existsSync(projectDir)) {
-    fs.rmSync(projectDir, { recursive: true, force: true })
-  }
-  fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
-  fs.mkdirSync(NPM_CACHE_DIR, { recursive: true })
-
-  fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
-    name: subdomain,
-    version: '1.0.0',
-    type: 'module',
-    scripts: { build: 'vite build' },
-    dependencies: {
-      'react': '^18.2.0',
-      'react-dom': '^18.2.0',
-      'react-router-dom': '^6.8.0',
-      'lucide-react': '^0.460.0',
-      'recharts': '^2.12.0',
-      'axios': '^1.6.0',
-      'date-fns': '^3.0.0',
-      'clsx': '^2.0.0'
-    },
-    devDependencies: {
-      '@vitejs/plugin-react': '^4.0.0',
-      'vite': '^5.0.0'
-    }
-  }, null, 2))
-
-  fs.writeFileSync(path.join(projectDir, 'vite.config.js'),
-`import { defineConfig } from 'vite'
+const VITE_CONFIG = `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-export default defineConfig({ plugins: [react()], base: '/' })`)
+export default defineConfig({ plugins: [react()], base: '/', cacheDir: './.vite-cache' })`
 
-  fs.writeFileSync(path.join(projectDir, 'index.html'),
-`<!DOCTYPE html>
+const INDEX_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -58,15 +44,26 @@ export default defineConfig({ plugins: [react()], base: '/' })`)
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
-</html>`)
+</html>`
 
-  fs.writeFileSync(path.join(projectDir, 'src', 'main.jsx'),
-`import React from 'react'
+const MAIN_JSX = `import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
-)`)
+)`
+
+export async function buildAndDeploy(projectId, code, onProgress) {
+  const subdomain = `app-${projectId.slice(0, 8)}`
+  const projectDir = path.join(USERS_DIR, subdomain)
+
+  const emit = (type, message) => {
+    if (onProgress) onProgress({ type, message })
+  }
+
+  emit('installing', 'Preparing build template...')
+  await ensureBuildTemplate((message) => emit('installing', message))
+  prepareProjectDir(projectDir, subdomain)
 
   let safeCode = normalizeGeneratedCode(code)
   if (!safeCode.includes('export default')) {
@@ -80,12 +77,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), safeCode)
 
   try {
-    emit('installing', 'Installing dependencies...')
-    await runCommand('npm', ['install', '--legacy-peer-deps', '--cache', NPM_CACHE_DIR], projectDir, (line) => {
-      const match = line.match(/added (\d+) packages/)
-      if (match) emit('installing', `Installing dependencies... (${match[1]} packages)`)
-    })
-
     emit('building', 'Building with Vite...')
     await runCommand('npm', ['run', 'build'], projectDir, (line) => {
       if (line.includes('transforming')) emit('building', 'Compiling modules...')
@@ -102,6 +93,66 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
   emit('deploying', 'Going live...')
   return subdomain
+}
+
+async function ensureBuildTemplate(onProgress) {
+  if (!templateReadyPromise) {
+    templateReadyPromise = createOrUpdateTemplate(onProgress).catch((err) => {
+      templateReadyPromise = null
+      throw err
+    })
+  }
+  return templateReadyPromise
+}
+
+async function createOrUpdateTemplate(onProgress) {
+  fs.mkdirSync(TEMPLATE_DIR, { recursive: true })
+  fs.mkdirSync(path.join(TEMPLATE_DIR, 'src'), { recursive: true })
+  fs.mkdirSync(NPM_CACHE_DIR, { recursive: true })
+
+  const packageJson = JSON.stringify(BASE_PACKAGE, null, 2)
+  const packagePath = path.join(TEMPLATE_DIR, 'package.json')
+  const packageChanged = !fs.existsSync(packagePath) || fs.readFileSync(packagePath, 'utf8') !== packageJson
+
+  fs.writeFileSync(packagePath, packageJson)
+  fs.writeFileSync(path.join(TEMPLATE_DIR, 'vite.config.js'), VITE_CONFIG)
+  fs.writeFileSync(path.join(TEMPLATE_DIR, 'index.html'), INDEX_HTML)
+  fs.writeFileSync(path.join(TEMPLATE_DIR, 'src', 'main.jsx'), MAIN_JSX)
+  fs.writeFileSync(path.join(TEMPLATE_DIR, 'src', 'App.jsx'), 'export default function App() { return null }\n')
+
+  const nodeModulesReady = fs.existsSync(path.join(TEMPLATE_DIR, 'node_modules', '.vite')) ||
+    fs.existsSync(path.join(TEMPLATE_DIR, 'node_modules', 'vite'))
+
+  if (packageChanged || !nodeModulesReady) {
+    onProgress?.('Installing shared dependencies...')
+    await runCommand('npm', ['install', '--legacy-peer-deps', '--cache', NPM_CACHE_DIR], TEMPLATE_DIR, (line) => {
+      const match = line.match(/added (\d+) packages/)
+      if (match) onProgress?.(`Shared dependencies ready (${match[1]} packages)`)
+    })
+  } else {
+    onProgress?.('Shared dependencies ready')
+  }
+}
+
+function prepareProjectDir(projectDir, subdomain) {
+  if (fs.existsSync(projectDir)) {
+    fs.rmSync(projectDir, { recursive: true, force: true })
+  }
+
+  fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
+  const appPackage = { ...BASE_PACKAGE, name: subdomain }
+  fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify(appPackage, null, 2))
+  fs.writeFileSync(path.join(projectDir, 'vite.config.js'), VITE_CONFIG)
+  fs.writeFileSync(path.join(projectDir, 'index.html'), INDEX_HTML)
+  fs.writeFileSync(path.join(projectDir, 'src', 'main.jsx'), MAIN_JSX)
+
+  const templateNodeModules = path.join(TEMPLATE_DIR, 'node_modules')
+  const projectNodeModules = path.join(projectDir, 'node_modules')
+  try {
+    fs.symlinkSync(templateNodeModules, projectNodeModules, 'dir')
+  } catch {
+    fs.cpSync(templateNodeModules, projectNodeModules, { recursive: true })
+  }
 }
 
 function normalizeGeneratedCode(code) {
