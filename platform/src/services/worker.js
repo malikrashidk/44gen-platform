@@ -7,6 +7,32 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY
 )
 
+async function purgeCloudflareCache(subdomain) {
+  const zoneId = process.env.CF_ZONE_ID
+  const apiToken = process.env.CF_API_TOKEN
+  if (!zoneId || !apiToken) return
+  try {
+    const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/purge_cache`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        files: [
+          `https://${subdomain}.44gen.com/`,
+          `https://${subdomain}.44gen.com/index.html`
+        ]
+      })
+    })
+    const data = await res.json()
+    if (data.success) console.log(`[Cloudflare] Cache purged for ${subdomain}.44gen.com`)
+    else console.warn(`[Cloudflare] Purge failed:`, data.errors)
+  } catch (err) {
+    console.warn(`[Cloudflare] Cache purge error: ${err.message}`)
+  }
+}
+
 const jobStore = new Map()
 
 const MAX_CONCURRENT = 3
@@ -187,6 +213,7 @@ async function runJob(jobId) {
           files,
           (progress) => emit(progress.type, { message: progress.message })
         )
+        await purgeCloudflareCache(subdomain)
         break
       } catch (buildErr) {
         if (attempt >= MAX_REPAIR_ATTEMPTS || !isRepairableBuildError(buildErr)) throw buildErr
