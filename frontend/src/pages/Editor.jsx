@@ -573,6 +573,11 @@ export default function Editor() {
 
   const handleApprovePlan = () => {
     if (!plan) return
+    setMessages(prev => prev.map(m =>
+      m.type === 'plan'
+        ? { ...m, content: { ...m.content, approved: true, collapsed: true } }
+        : m
+    ))
     startBuild(plan)
     setPlan(null)
   }
@@ -708,6 +713,36 @@ export default function Editor() {
 
     if (msg.type === 'plan') {
       const p = msg.content
+      if (p.collapsed) {
+        return (
+          <button key={msg.id} onClick={() => setMessages(prev => prev.map(m =>
+            m.id === msg.id ? { ...m, content: { ...m.content, collapsed: false } } : m
+          ))}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              width: '100%',
+              background: d ? 'rgba(16,185,129,0.07)' : 'rgba(16,185,129,0.08)',
+              border: '1px solid rgba(16,185,129,0.18)',
+              borderRadius: 12,
+              padding: '9px 11px',
+              cursor: 'pointer',
+              color: text,
+              textAlign: 'left'
+            }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+              <CheckCircle2 size={14} style={{ color: '#10b981', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Plan approved
+              </span>
+            </span>
+            <span style={{ fontSize: 11, color: muted, flexShrink: 0 }}>View plan</span>
+          </button>
+        )
+      }
+
       return (
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -771,14 +806,23 @@ export default function Editor() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted }}>
               <Zap size={11} style={{ color: '#7c3aed' }} /> Est. {p.estimated_credits} credits
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={handleRejectPlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '5px 10px', borderRadius: 7, cursor: 'pointer' }}>
-                <X size={11} /> Cancel
+            {p.approved ? (
+              <button onClick={() => setMessages(prev => prev.map(m =>
+                m.id === msg.id ? { ...m, content: { ...m.content, collapsed: true } } : m
+              ))}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.18)', padding: '5px 10px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                <CheckCircle2 size={11} /> Collapse
               </button>
-              <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#7c3aed', border: 'none', padding: '5px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
-                <Check size={11} /> Approve & Build
-              </button>
-            </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={handleRejectPlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '5px 10px', borderRadius: 7, cursor: 'pointer' }}>
+                  <X size={11} /> Cancel
+                </button>
+                <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#7c3aed', border: 'none', padding: '5px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                  <Check size={11} /> Approve & Build
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )
