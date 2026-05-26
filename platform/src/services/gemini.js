@@ -1,17 +1,44 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || '')
+  .split(',')
+  .map(model => model.trim())
+  .filter(Boolean)
+const MODEL_CHAIN = [...new Set([PRIMARY_MODEL, ...FALLBACK_MODELS])]
 
-async function withRetry(fn, retries = 3, delayMs = 1000) {
+function isRetryableGeminiError(err) {
+  return err.status === 429 ||
+    err.status >= 500 ||
+    err.message?.includes('UNAVAILABLE') ||
+    err.message?.includes('high demand')
+}
+
+async function withRetry(fn, retries = 4, delayMs = 1200) {
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn()
     } catch (err) {
-      const isRetryable = err.status === 429 || err.status >= 500 || err.message?.includes('UNAVAILABLE')
-      if (i === retries || !isRetryable) throw err
-      await new Promise(r => setTimeout(r, delayMs * Math.pow(2, i)))
+      if (i === retries || !isRetryableGeminiError(err)) throw err
+      const jitter = Math.floor(Math.random() * 350)
+      await new Promise(r => setTimeout(r, delayMs * Math.pow(2, i) + jitter))
     }
   }
+}
+
+async function withModelFallback(createRequest, models = MODEL_CHAIN) {
+  let lastError
+  for (const modelName of models) {
+    try {
+      return await withRetry(() => createRequest(modelName))
+    } catch (err) {
+      lastError = err
+      if (!isRetryableGeminiError(err)) throw err
+      console.warn(`[Gemini] ${modelName} unavailable: ${err.message}`)
+    }
+  }
+  throw lastError
 }
 
 function extractJson(text) {
@@ -23,10 +50,11 @@ function extractJson(text) {
 }
 
 export async function generatePlan(prompt) {
-  return withRetry(async () => {
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: `You are a senior software architect analyzing a user's app request.
+  try {
+    return await withModelFallback(async (modelName) => {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: `You are a senior software architect analyzing a user's app request.
 Determine if the request is simple or complex.
 
 COMPLEXITY RULES:
@@ -47,23 +75,28 @@ Return ONLY valid JSON, no markdown, no backticks:
   "estimated_credits": 2.5,
   "phases": null
 }`
-    })
+      })
 
-    const result = await model.generateContent(`User request: "${prompt}"`)
-    const response = await result.response
-    const usage = response.usageMetadata
-    const plan = extractJson(response.text())
-    return {
-      plan,
-      tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
-    }
-  })
+      const result = await model.generateContent(`User request: "${prompt}"`)
+      const response = await result.response
+      const usage = response.usageMetadata
+      const plan = extractJson(response.text())
+      return {
+        plan,
+        tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+      }
+    })
+  } catch (err) {
+    if (!isRetryableGeminiError(err)) throw err
+    console.warn('[Gemini] Falling back to local plan:', err.message)
+    return { plan: createFallbackPlan(prompt), tokens_used: 0, fallback: true }
+  }
 }
 
 export async function generateCodeStream(plan, phase, onChunk, onThought) {
-  return withRetry(async () => {
+  return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: modelName,
       systemInstruction: `You are an expert React developer. Generate a complete working React app.
 
 DESIGN RULES (very important):
@@ -135,9 +168,9 @@ Files: ${plan.files?.join(', ')}`
 }
 
 export async function generateSummary(plan, filesWritten) {
-  return withRetry(async () => {
+  return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: modelName,
       systemInstruction: 'Return ONLY valid JSON, no markdown, no backticks.'
     })
 
@@ -167,4 +200,35 @@ Files: ${filesWritten.join(', ')}`
       }
     }
   })
+}
+
+function createFallbackPlan(prompt) {
+  const words = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !['the', 'and', 'for', 'with', 'app', 'create', 'build'].includes(word))
+
+  const appName = words.length
+    ? words.slice(0, 4).map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
+    : 'Generated App'
+
+  return {
+    understanding: prompt,
+    is_complex: false,
+    app_name: appName,
+    current_phase: 1,
+    total_phases: 1,
+    steps: [
+      'Create a focused React interface for the requested app',
+      'Add the main form, inputs, and interactive state',
+      'Show calculated results or generated output clearly',
+      'Apply clean responsive styling'
+    ],
+    files: ['src/App.jsx'],
+    questions: [],
+    out_of_scope: ['Backend persistence', 'User accounts', 'Payment integration'],
+    estimated_credits: 2.5,
+    phases: null
+  }
 }
