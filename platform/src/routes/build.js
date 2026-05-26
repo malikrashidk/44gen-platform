@@ -154,7 +154,7 @@ router.post('/direct', requireAuth, async (req, res) => {
       .eq('id', projectId)
       .eq('user_id', userId)
       .single()
-    if (!project) return res.status(404).json({ error: 'Project not found' })\
+    if (!project) return res.status(404).json({ error: 'Project not found' })
 
     // Fetch current App.jsx for context
     const { data: appFile } = await supabase
