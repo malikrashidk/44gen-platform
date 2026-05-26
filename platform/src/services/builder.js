@@ -1,12 +1,11 @@
-const fs = require('fs')
-const path = require('path')
-const { spawn } = require('child_process')
+import fs from 'node:fs'
+import path from 'node:path'
+import { spawn } from 'node:child_process'
 
 const USERS_DIR = '/var/www/44gen/users'
-// Shared npm cache to avoid re-downloading packages on every build
 const NPM_CACHE_DIR = '/var/www/44gen/.npm-cache'
 
-async function buildAndDeploy(projectId, code, onProgress) {
+export async function buildAndDeploy(projectId, code, onProgress) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
 
@@ -14,12 +13,10 @@ async function buildAndDeploy(projectId, code, onProgress) {
     if (onProgress) onProgress({ type, message })
   }
 
-  // Clean existing directory
   if (fs.existsSync(projectDir)) {
     fs.rmSync(projectDir, { recursive: true, force: true })
   }
   fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true })
-  // Ensure shared npm cache dir exists
   fs.mkdirSync(NPM_CACHE_DIR, { recursive: true })
 
   fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({
@@ -71,15 +68,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`)
 
-  // Safety net: ensure code has a default export so Vite doesn't fail
   let safeCode = code
   if (!code.includes('export default')) {
-    // Try to find the main function/component name and append export
     const match = code.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
     if (match) {
       safeCode = code + `\n\nexport default ${match[1]}`
     } else {
-      // Wrap the whole thing in an App component as last resort
       safeCode = code + '\n\nexport default App'
     }
   }
@@ -102,7 +96,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       }
     })
   } catch (err) {
-    // Clean up partial build directory on failure
     try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch {}
     throw err
   }
@@ -133,5 +126,3 @@ function runCommand(cmd, args, cwd, onLine) {
     proc.on('error', reject)
   })
 }
-
-module.exports = { buildAndDeploy }

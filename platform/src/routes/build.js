@@ -1,9 +1,9 @@
-const express = require('express')
-const router = express.Router()
-const { createClient } = require('@supabase/supabase-js')
-const { processJob, subscribeToJob, getJobHistory } = require('../services/worker')
-const { requireAuth } = require('../middleware/auth')
+import { Router } from 'express'
+import { createClient } from '@supabase/supabase-js'
+import { processJob, subscribeToJob, getJobHistory } from '../services/worker.js'
+import { requireAuth } from '../middleware/auth.js'
 
+const router = Router()
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY
@@ -78,7 +78,6 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
       return
     }
 
-    // Verify ownership
     if (job.user_id !== userId) {
       send({ type: 'error', message: 'Forbidden' })
       clearInterval(keepalive)
@@ -86,12 +85,10 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
       return
     }
 
-    // Replay history, skipping events already seen (Last-Event-ID support)
     const history = getJobHistory(jobId)
     const source = history.length > 0 ? history : (job.progress || [])
     source.slice(lastId).forEach(e => send(e))
 
-    // Already finished — replay and close
     if (job.status === 'done' || job.status === 'failed') {
       clearInterval(keepalive)
       setTimeout(() => res.end(), 300)
@@ -128,4 +125,4 @@ router.get('/status/:jobId', requireAuth, async (req, res) => {
   res.json(job)
 })
 
-module.exports = router
+export default router

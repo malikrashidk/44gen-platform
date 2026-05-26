@@ -1,12 +1,13 @@
-const express = require('express')
-const cors = require('cors')
-const helmet = require('helmet')
-const compression = require('compression')
-const rateLimit = require('express-rate-limit')
-require('dotenv').config()
+import express from 'express'
+import cors from 'cors'
+import helmet from 'helmet'
+import compression from 'compression'
+import rateLimit from 'express-rate-limit'
+import { createClient } from '@supabase/supabase-js'
+import 'dotenv/config'
 
-const planRoute = require('./routes/plan')
-const buildRoute = require('./routes/build')
+import planRoute from './routes/plan.js'
+import buildRoute from './routes/build.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -21,7 +22,7 @@ app.use(express.json({ limit: '10mb' }))
 
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  limit: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' }
@@ -29,12 +30,12 @@ app.use('/api/', rateLimit({
 
 const buildLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5,
+  limit: 5,
   message: { error: 'Too many build requests per minute.' }
 })
 const planLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
+  limit: 20,
   message: { error: 'Too many plan requests per minute.' }
 })
 
@@ -45,10 +46,8 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }))
 
-// On startup, mark any jobs that were interrupted mid-build as failed
 async function recoverStaleJobs() {
   try {
-    const { createClient } = require('@supabase/supabase-js')
     const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY)
 
     const { data: stale } = await supabase
@@ -63,7 +62,6 @@ async function recoverStaleJobs() {
         .update({ status: 'failed', error: 'Server restarted during build. Please try again.' })
         .in('id', ids)
 
-      // Reset project status so they don't stay stuck on 'building'
       const projectIds = stale.map(j => j.project_id)
       await supabase.from('projects')
         .update({ status: 'draft' })
