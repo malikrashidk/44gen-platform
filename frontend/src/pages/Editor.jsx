@@ -7,7 +7,7 @@ import {
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
   Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw,
-  Download, FolderOpen
+  Download, FolderOpen, Plus, Copy, Shield
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -29,10 +29,11 @@ export default function Editor() {
   const [activeTab, setActiveTab] = useState('preview')
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('44gen-dark-mode')
-    return saved !== null ? saved === 'true' : true
+    return saved !== null ? saved === 'true' : false
   })
   const [previewDevice, setPreviewDevice] = useState('desktop')
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showPublishPanel, setShowPublishPanel] = useState(false)
   const [showChat, setShowChat] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState('')
@@ -69,12 +70,12 @@ export default function Editor() {
   const buildStartedRef = useRef(false) // prevent double-approve
 
   const d = darkMode
-  const bg = d ? '#0f0f0f' : '#f5f5f5'
+  const bg = d ? '#0f0f0f' : '#fbfaf8'
   const surface = d ? '#161616' : '#ffffff'
-  const border = d ? '#2a2a2a' : '#e5e5e5'
-  const text = d ? '#f0f0f0' : '#111111'
-  const muted = d ? '#666' : '#999'
-  const subtle = d ? '#1a1a1a' : '#f0f0f0'
+  const border = d ? '#2a2a2a' : '#ece9e3'
+  const text = d ? '#f0f0f0' : '#1f1f23'
+  const muted = d ? '#777' : '#7b7670'
+  const subtle = d ? '#1a1a1a' : '#f5f2ed'
 
   useEffect(() => { fetchProject() }, [projectId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -871,6 +872,10 @@ ${answerText}`
     setRenaming(false)
   }
 
+  const copyPreviewUrl = () => {
+    if (previewUrl) navigator.clipboard.writeText(previewUrl)
+  }
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
   }
@@ -1266,7 +1271,7 @@ ${answerText}`
     <div style={{ height: '100dvh', background: bg, color: text, display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans','Inter',sans-serif", overflow: 'hidden' }}>
 
       {/* TOP BAR */}
-      <div style={{ height: 46, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0, zIndex: 50 }}>
+      <div style={{ height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0, zIndex: 50, position: 'relative', boxShadow: d ? 'none' : '0 1px 8px rgba(17,17,17,0.04)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <button onClick={() => navigate('/dashboard')} style={{ color: muted, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}>
             <ArrowLeft size={15} />
@@ -1308,7 +1313,7 @@ ${answerText}`
             <Zap size={11} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0}
           </div>
           {previewUrl && (
-            <button onClick={() => navigator.clipboard.writeText(previewUrl)}
+            <button onClick={copyPreviewUrl}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}`, cursor: 'pointer' }}>
               <Share size={11} /> Share
             </button>
@@ -1318,10 +1323,54 @@ ${answerText}`
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
           {previewUrl && (
-            <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#fff', background: '#7c3aed', padding: '4px 12px', borderRadius: 7, textDecoration: 'none' }}>
+            <button onClick={() => setShowPublishPanel(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg,#6d5dfc,#4f46e5)', padding: '6px 13px', borderRadius: 9, border: 'none', cursor: 'pointer', boxShadow: '0 8px 18px rgba(79,70,229,0.22)' }}>
               <Globe size={11} /> <span className="hide-xs">Publish</span>
-            </a>
+            </button>
+          )}
+          {showPublishPanel && <div onClick={() => setShowPublishPanel(false)} style={{ position: 'fixed', inset: 0, zIndex: 80 }} />}
+          {showPublishPanel && previewUrl && (
+            <div style={{ position: 'absolute', right: 54, top: 48, width: 360, background: surface, border: `1px solid ${border}`, borderRadius: 16, boxShadow: d ? '0 20px 70px rgba(0,0,0,0.55)' : '0 22px 70px rgba(34,28,20,0.16)', zIndex: 100, overflow: 'hidden' }}>
+              <div style={{ padding: 18, borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: text }}>Published</h3>
+                  <p style={{ fontSize: 12, color: muted, marginTop: 4 }}>Your app is live and shareable.</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(79,70,229,0.35)', color: '#4f46e5', borderRadius: 10, padding: '7px 10px', fontSize: 12, fontWeight: 800 }}>
+                  <Activity size={13} /> 1 visitor
+                </div>
+              </div>
+              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: text }}>Website URL</span>
+                    <button style={{ display: 'flex', alignItems: 'center', gap: 5, color: text, background: 'none', border: 'none', fontSize: 12, cursor: 'pointer' }}>
+                      <Globe size={12} /> Add custom domain
+                    </button>
+                  </div>
+                  <button onClick={copyPreviewUrl} style={{ width: '100%', minHeight: 48, borderRadius: 12, border: `1px solid ${border}`, background: d ? '#111' : '#fbfaf8', color: text, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 13px', cursor: 'pointer', fontSize: 13 }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewUrl.replace('https://', '')}</span>
+                    <Copy size={14} style={{ color: muted, flexShrink: 0 }} />
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 12, background: subtle, border: `1px solid ${border}` }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: surface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', border: `1px solid ${border}` }}>
+                    <Shield size={17} />
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: text, margin: 0 }}>Public</p>
+                    <p style={{ fontSize: 12, color: muted, marginTop: 2 }}>Anyone with the URL can view this website.</p>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
+                  <button style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Review security</button>
+                  <button style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Edit settings</button>
+                </div>
+                <div style={{ background: 'linear-gradient(135deg,#a5b4fc,#818cf8)', color: '#fff', borderRadius: 10, padding: '10px 12px', textAlign: 'center', fontSize: 13, fontWeight: 800 }}>
+                  Up to date
+                </div>
+              </div>
+            </div>
           )}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowUserMenu(!showUserMenu)}
@@ -1371,7 +1420,7 @@ ${answerText}`
 
         {/* LEFT — Chat (collapsible) */}
         {showChat && (
-          <div className="chat-panel" style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}` }}>
+          <div className="chat-panel" style={{ width: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${border}`, background: surface }}>
             <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {messages.length === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 12px' }}>
@@ -1399,30 +1448,8 @@ ${answerText}`
             </div>
 
             {/* Input */}
-            <div style={{ padding: 10, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-                {['plan', 'build'].map(mode => (
-                  <button key={mode} onClick={() => setPromptMode(mode)}
-                    disabled={loading || stage === 'building' || stage === 'awaiting_approval' || stage === 'awaiting_clarification'}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: 999,
-                      border: `1px solid ${promptMode === mode ? '#7c3aed' : border}`,
-                      background: promptMode === mode ? 'rgba(124,58,237,0.12)' : 'transparent',
-                      color: promptMode === mode ? '#7c3aed' : muted,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      cursor: loading ? 'default' : 'pointer',
-                      textTransform: 'capitalize'
-                    }}>
-                    {mode}
-                  </button>
-                ))}
-                <span style={{ fontSize: 11, color: d ? '#444' : '#aaa', marginLeft: 'auto' }}>
-                  {promptMode === 'plan' ? 'Plan first' : 'Build directly'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, background: d ? '#111' : '#fff', border: `1px solid ${border}`, borderRadius: 12, padding: '7px 9px' }}>
+            <div style={{ padding: 12, borderTop: `1px solid ${border}`, flexShrink: 0, background: surface }}>
+              <div style={{ background: d ? '#111' : '#fffdf9', border: `1px solid ${border}`, borderRadius: 18, padding: 10, boxShadow: d ? 'none' : '0 10px 30px rgba(42,35,24,0.08)' }}>
                 <textarea ref={textareaRef} value={prompt}
                   onChange={handlePromptChange}
                   onKeyDown={handleKeyDown}
@@ -1434,15 +1461,28 @@ ${answerText}`
                   }
                   disabled={loading || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
                   rows={1}
-                  style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, fontFamily: 'inherit', overflow: 'hidden' }}
+                  style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 14, color: text, lineHeight: 1.5, fontFamily: 'inherit', overflow: 'hidden', minHeight: 34 }}
                 />
-                <button onClick={handleSubmit}
-                  disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
-                  style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {loading && (stage === 'planning' || stage === 'clarifying')
-                    ? <Loader2 size={12} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
-                    : <Send size={12} style={{ color: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#fff' : muted }} />}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8 }}>
+                  <button title="Add context" style={{ width: 32, height: 32, borderRadius: '50%', border: `1px solid ${border}`, background: surface, color: muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                    <Plus size={15} />
+                  </button>
+                  <button title="Visual edits" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, borderRadius: 999, border: `1px solid ${border}`, background: surface, color: text, padding: '0 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                    <Sparkles size={13} /> Visual edits
+                  </button>
+                  <button onClick={() => setPromptMode(promptMode === 'plan' ? 'build' : 'plan')}
+                    disabled={loading || stage === 'building' || stage === 'awaiting_approval' || stage === 'awaiting_clarification'}
+                    style={{ marginLeft: 'auto', height: 32, border: 'none', background: 'transparent', color: text, padding: '0 4px', fontSize: 12, fontWeight: 800, cursor: loading ? 'default' : 'pointer', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {promptMode} <ChevronRight size={12} style={{ transform: 'rotate(90deg)', color: muted }} />
+                  </button>
+                  <button onClick={handleSubmit}
+                    disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
+                    style={{ width: 34, height: 34, flexShrink: 0, borderRadius: '50%', background: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#6d5dfc' : (d ? '#222' : '#d8d3cc'), border: 'none', cursor: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: prompt.trim() ? '0 8px 16px rgba(109,93,252,0.22)' : 'none' }}>
+                    {loading && (stage === 'planning' || stage === 'clarifying')
+                      ? <Loader2 size={13} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
+                      : <Send size={13} style={{ color: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#fff' : muted }} />}
+                  </button>
+                </div>
               </div>
               <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
                 Plan ~0.5 credits · Build cost shown in plan
@@ -1453,7 +1493,7 @@ ${answerText}`
 
         {/* RIGHT — Preview / Code / Details */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-          <div style={{ height: 38, display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0 }}>
+          <div style={{ height: 44, display: 'flex', alignItems: 'center', gap: 3, padding: '0 12px', borderBottom: `1px solid ${border}`, background: surface, flexShrink: 0 }}>
             {[
               { id: 'preview', icon: <Eye size={12} />, label: 'Preview' },
               { id: 'code', icon: <Code size={12} />, label: 'Code' },
@@ -1461,7 +1501,7 @@ ${answerText}`
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 6,
+                  display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 999,
                   fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
                   background: activeTab === tab.id ? 'rgba(124,58,237,0.1)' : 'transparent',
                   color: activeTab === tab.id ? '#7c3aed' : muted
@@ -1491,15 +1531,16 @@ ${answerText}`
           </div>
 
           {activeTab === 'preview' && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#e0e0e0', overflow: 'hidden', position: 'relative' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: d ? '#080808' : '#f3f1ed', overflow: 'hidden', position: 'relative', padding: previewUrl && previewDevice === 'desktop' ? 14 : 0 }}>
               {previewUrl ? (
                 <div style={{
                   width: previewDevice === 'mobile' ? 390 : '100%',
                   height: previewDevice === 'mobile' ? 844 : '100%',
                   maxHeight: '100%',
-                  borderRadius: previewDevice === 'mobile' ? 14 : 0,
+                  borderRadius: previewDevice === 'mobile' ? 18 : 14,
                   overflow: 'hidden',
-                  boxShadow: previewDevice === 'mobile' ? '0 20px 60px rgba(0,0,0,0.5)' : 'none',
+                  border: `1px solid ${d ? '#222' : '#e3ded6'}`,
+                  boxShadow: previewDevice === 'mobile' ? '0 20px 60px rgba(0,0,0,0.5)' : (d ? 'none' : '0 18px 60px rgba(45,38,28,0.08)'),
                   position: 'relative'
                 }}>
                   {iframeStatus === 'loading' && (
@@ -1661,7 +1702,7 @@ ${answerText}`
         ::-webkit-scrollbar-track { background: transparent }
         ::-webkit-scrollbar-thumb { background: ${d ? '#333' : '#ddd'}; border-radius: 2px }
         @media (max-width: 640px) {
-          .chat-panel { width: 100% !important; position: absolute; inset: 46px 0 0 0; z-index: 40; }
+          .chat-panel { width: 100% !important; position: absolute; inset: 54px 0 0 0; z-index: 40; }
           .hide-xs { display: none !important; }
         }
       `}</style>
