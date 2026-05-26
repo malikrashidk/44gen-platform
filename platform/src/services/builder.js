@@ -69,8 +69,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )`)
 
   let safeCode = normalizeGeneratedCode(code)
-  if (!code.includes('export default')) {
-    const match = code.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
+  if (!safeCode.includes('export default')) {
+    const match = safeCode.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
     if (match) {
       safeCode = safeCode + `\n\nexport default ${match[1]}`
     } else {
@@ -105,11 +105,39 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 }
 
 function normalizeGeneratedCode(code) {
-  return code.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (match, attrs, body) => {
+  const unfenced = code
+    .replace(/^\s*```(?:jsx|tsx|javascript|js)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim()
+
+  let cleaned = unfenced
+  const moduleScript = cleaned.match(/<script\b[^>]*type=["']module["'][^>]*>([\s\S]*?)<\/script>/i)
+  if (moduleScript?.[1]) cleaned = moduleScript[1].trim()
+
+  cleaned = cleaned
+    .replace(/^\s*<!doctype[^>]*>\s*/i, '')
+    .replace(/<\/?(?:html|head|body)\b[^>]*>/gi, '')
+    .replace(/<script\b[^>]*>/gi, '')
+    .replace(/<\/script>/gi, '')
+    .replace(/from\s+['"]https:\/\/esm\.sh\/lucide-react(?:@[^'"]*)?['"]/gi, "from 'lucide-react'")
+    .replace(/from\s+['"]https:\/\/esm\.sh\/react(?:@[^'"]*)?['"]/gi, "from 'react'")
+    .replace(/from\s+['"]https:\/\/esm\.sh\/react-dom\/client(?:@[^'"]*)?['"]/gi, "from 'react-dom/client'")
+    .replace(/from\s+['"]https:\/\/esm\.sh\/react-dom(?:@[^'"]*)?['"]/gi, "from 'react-dom'")
+    .replace(/^\s*import\s+.*?\s+from\s+['"]react-dom(?:\/client)?['"];?\s*$/gmi, '')
+    .replace(/window\.ReactDOM\s*=\s*\{[\s\S]*?\};?/gi, '')
+    .replace(/window\.lucideReact\s*=\s*\{[\s\S]*?\};?/gi, '')
+    .replace(/ReactDOM\.createRoot[\s\S]*?;\s*/gi, '')
+    .replace(/createRoot\([\s\S]*?;\s*/gi, '')
+    .replace(/ReactDOM\.render\([\s\S]*?\);?/gi, '')
+    .trim()
+
+  cleaned = cleaned.replace(/<style([^>]*)>([\s\S]*?)<\/style>/gi, (match, attrs, body) => {
     if (!body.trim() || body.trimStart().startsWith('{`')) return match
     const escaped = body.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
     return `<style${attrs}>{\`${escaped}\`}</style>`
   })
+
+  return cleaned
 }
 
 function runCommand(cmd, args, cwd, onLine) {

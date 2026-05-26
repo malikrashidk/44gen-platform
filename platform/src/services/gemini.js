@@ -84,6 +84,10 @@ TECHNICAL RULES:
 - MUST have exactly one default export: \`export default function App()\` or \`export default App\` at the end
 - If adding CSS in a <style> tag, it MUST be JSX-safe: \`<style>{\`css here\`}</style>\`. Never put raw CSS directly between <style> and </style>.
 - Prefer Tailwind classes and inline style objects over <style> tags.
+- Do not wrap the answer in markdown fences. The first characters must be an import statement, not \`\`\`.
+- Do not return an HTML document. Never include \`<!doctype>\`, \`<html>\`, \`<head>\`, \`<body>\`, \`<script>\`, CDN scripts, or ReactDOM render calls.
+- Import dependencies from package names only. Use \`from 'lucide-react'\`, never URL imports like \`https://esm.sh/...\`.
+- Return exactly one React module for src/App.jsx. The platform already provides index.html and main.jsx.
 - Return ONLY raw JSX starting with imports. No markdown, no backticks, no explanations.`
     })
 
