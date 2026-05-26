@@ -1,19 +1,17 @@
-const { generateCodeStream, generateSummary } = require('./gemini')
-const { buildAndDeploy } = require('./builder')
-const { createClient } = require('@supabase/supabase-js')
+import { createClient } from '@supabase/supabase-js'
+import { generateCodeStream, generateSummary } from './gemini.js'
+import { buildAndDeploy } from './builder.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY
 )
 
-// In-memory store per job
 const jobStore = new Map()
 
-// Concurrency control — max 3 simultaneous builds
 const MAX_CONCURRENT = 3
 let activeBuilds = 0
-const pendingQueue = [] // jobIds waiting for a slot
+const pendingQueue = []
 
 function getStore(jobId) {
   if (!jobStore.has(jobId)) {
@@ -59,7 +57,7 @@ async function flushPersist(jobId) {
   } catch {}
 }
 
-function subscribeToJob(jobId, listener) {
+export function subscribeToJob(jobId, listener) {
   const store = getStore(jobId)
   store.listeners.add(listener)
   return () => {
@@ -73,12 +71,11 @@ function subscribeToJob(jobId, listener) {
   }
 }
 
-function getJobHistory(jobId) {
+export function getJobHistory(jobId) {
   return jobStore.get(jobId)?.history || []
 }
 
-// Called by the route — handles queueing if at capacity
-async function processJob(jobId) {
+export async function processJob(jobId) {
   if (activeBuilds >= MAX_CONCURRENT) {
     pendingQueue.push(jobId)
     emitJobEvent(jobId, { type: 'queued', message: `Build queued — waiting for a slot (${pendingQueue.length} ahead)...` })
@@ -94,7 +91,7 @@ async function processJob(jobId) {
   }
 }
 
-const JOB_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+const JOB_TIMEOUT_MS = 10 * 60 * 1000
 
 async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
@@ -194,7 +191,7 @@ async function runJob(jobId) {
       phase: job.plan.current_phase,
       total_phases: job.plan.total_phases,
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
-      plan: job.plan, // stored so frontend can continue to next phase without re-planning
+      plan: job.plan,
       summary
     }
 
@@ -225,5 +222,3 @@ async function runJob(jobId) {
     emit('error', { message: err.message })
   }
 }
-
-module.exports = { processJob, subscribeToJob, getJobHistory }

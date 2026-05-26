@@ -1,8 +1,7 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai')
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
-// Retry wrapper — retries on transient errors (rate limits, 5xx)
 async function withRetry(fn, retries = 3, delayMs = 1000) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -15,18 +14,15 @@ async function withRetry(fn, retries = 3, delayMs = 1000) {
   }
 }
 
-// Robust JSON extraction — handles markdown fences and leading/trailing text
 function extractJson(text) {
   const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-  // Try direct parse first
   try { return JSON.parse(cleaned) } catch {}
-  // Extract first {...} block
   const match = cleaned.match(/\{[\s\S]*\}/)
   if (match) return JSON.parse(match[0])
   throw new Error('No valid JSON found in response')
 }
 
-async function generatePlan(prompt) {
+export async function generatePlan(prompt) {
   return withRetry(async () => {
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.5-flash',
@@ -64,7 +60,7 @@ Return ONLY valid JSON, no markdown, no backticks:
   })
 }
 
-async function generateCodeStream(plan, phase, onChunk, onThought) {
+export async function generateCodeStream(plan, phase, onChunk, onThought) {
   return withRetry(async () => {
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.5-flash',
@@ -85,7 +81,7 @@ TECHNICAL RULES:
 - react-router-dom only if routing is needed
 - Only these lucide-react icons (no others): Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield
 - Only packages: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
-- MUST have exactly one default export: `export default function App()` or `export default App` at the end
+- MUST have exactly one default export: \`export default function App()\` or \`export default App\` at the end
 - Return ONLY raw JSX starting with imports. No markdown, no backticks, no explanations.`
     })
 
@@ -132,7 +128,7 @@ Files: ${plan.files?.join(', ')}`
   })
 }
 
-async function generateSummary(plan, filesWritten) {
+export async function generateSummary(plan, filesWritten) {
   return withRetry(async () => {
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.5-flash',
@@ -166,5 +162,3 @@ Files: ${filesWritten.join(', ')}`
     }
   })
 }
-
-module.exports = { generatePlan, generateCodeStream, generateSummary }

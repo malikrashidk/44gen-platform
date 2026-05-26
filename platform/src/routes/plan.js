@@ -1,9 +1,9 @@
-const express = require('express')
-const router = express.Router()
-const { generatePlan } = require('../services/gemini')
-const { requireAuth } = require('../middleware/auth')
-const { createClient } = require('@supabase/supabase-js')
+import { Router } from 'express'
+import { createClient } from '@supabase/supabase-js'
+import { generatePlan } from '../services/gemini.js'
+import { requireAuth } from '../middleware/auth.js'
 
+const router = Router()
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY
@@ -15,7 +15,6 @@ router.post('/', requireAuth, async (req, res) => {
 
   if (!prompt) return res.status(400).json({ error: 'Prompt is required' })
 
-  // Check credits before generating
   const { data: profile } = await supabase
     .from('profiles').select('credits').eq('id', userId).single()
   if (!profile || profile.credits < 0.1)
@@ -25,7 +24,6 @@ router.post('/', requireAuth, async (req, res) => {
     const { plan, tokens_used } = await generatePlan(prompt)
     const credits_used = parseFloat((tokens_used / 10000).toFixed(2))
 
-    // Atomic credit deduction — only proceeds if credits are still sufficient
     const { data: updated } = await supabase
       .from('profiles')
       .update({ credits: profile.credits - credits_used })
@@ -64,4 +62,4 @@ router.post('/', requireAuth, async (req, res) => {
   }
 })
 
-module.exports = router
+export default router
