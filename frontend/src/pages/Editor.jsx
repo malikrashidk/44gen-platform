@@ -44,6 +44,7 @@ export default function Editor() {
 
   const codeChunksRef = useRef('')
   const codeMessageIdRef = useRef(null)
+  const buildStreamMessageIdRef = useRef(null)
   const codeFlushIntervalRef = useRef(null)
 
   const sessionRef = useRef(session)
@@ -99,6 +100,23 @@ export default function Editor() {
         setMessages(prev => prev.map(m =>
           m.id === codeMessageIdRef.current
             ? { ...m, content: { ...m.content, code: snapshot } }
+            : m
+        ))
+      }
+      if (buildStreamMessageIdRef.current) {
+        const snapshot = codeChunksRef.current
+        const lineCount = snapshot ? snapshot.split('\n').length : 0
+        setMessages(prev => prev.map(m =>
+          m.id === buildStreamMessageIdRef.current
+            ? {
+                ...m,
+                content: {
+                  ...m.content,
+                  code: snapshot,
+                  codeLines: lineCount,
+                  heading: `${m.content.actionVerb || 'Editing'} ${m.content.file || 'src/App.jsx'} · ${lineCount} lines`
+                }
+              }
             : m
         ))
       }
@@ -186,7 +204,12 @@ export default function Editor() {
       setStage('building')
       setLoading(true)
       streamFinishedRef.current = false
-      addMessage('assistant', 'Reconnecting to build...', 'status')
+      upsertBuildStream({
+        heading: 'Reconnecting to build...',
+        subtext: '',
+        phase: 'connecting',
+        step: { label: 'Reconnecting to build', tone: 'active' }
+      })
       connectToStream(jobs[0].id)
     }
   }
@@ -196,6 +219,46 @@ export default function Editor() {
     setMessages(prev => [...prev, { role, content, type, id }])
     return id
   }
+
+  const upsertBuildStream = useCallback((patch = {}) => {
+    const defaults = {
+      heading: 'Starting build',
+      subtext: 'Preparing your app...',
+      phase: 'starting',
+      code: '',
+      codeLines: 0,
+      steps: []
+    }
+
+    setMessages(prev => {
+      const id = buildStreamMessageIdRef.current
+      const nextPatch = { ...patch }
+      if (nextPatch.step) delete nextPatch.step
+
+      if (!id || !prev.some(m => m.id === id)) {
+        const newId = Date.now() + Math.random()
+        buildStreamMessageIdRef.current = newId
+        return [...prev, {
+          id: newId,
+          role: 'assistant',
+          type: 'build_stream',
+          content: {
+            ...defaults,
+            ...nextPatch,
+            steps: patch.step ? [patch.step] : []
+          }
+        }]
+      }
+
+      return prev.map(m => {
+        if (m.id !== id) return m
+        const steps = patch.step
+          ? [...(m.content.steps || []).filter(s => s.label !== patch.step.label), patch.step].slice(-5)
+          : (m.content.steps || [])
+        return { ...m, content: { ...m.content, ...nextPatch, steps } }
+      })
+    })
+  }, [])
 
   const saveConversation = async (role, content, type = 'message') => {
     await supabase.from('conversations').insert({
@@ -235,7 +298,12 @@ export default function Editor() {
 
     streamWatchdogRef.current = setTimeout(() => {
       if (!streamFinishedRef.current && stageRef.current === 'building' && !streamEventSeenRef.current) {
-        addMessage('assistant', 'Build started. Waiting for the live stream...', 'status')
+        upsertBuildStream({
+          heading: 'Waiting for the first live build update...',
+          subtext: '',
+          phase: 'connecting',
+          step: { label: 'Waiting for live stream', tone: 'active' }
+        })
         setDetailsLog(prev => [...prev, { icon: '⏱️', msg: 'Waiting for first build update...', color: '#f59e0b', ts: Date.now() }])
         loadBuildProgress()
       }
@@ -252,7 +320,7 @@ export default function Editor() {
       setLoading(false)
       reconnectAttemptsRef.current = 0
     }
-  }, [stopCodeFlush])
+  }, [stopCodeFlush, upsertBuildStream])
 
   // handleStreamEvent as a plain function updated into ref each render
   const handleStreamEvent = (event) => {
@@ -261,33 +329,49 @@ export default function Editor() {
 
     switch (event.type) {
       case 'queued':
-        setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', event.message, 'status')
+        upsertBuildStream({
+          heading: event.message,
+          subtext: '',
+          phase: 'queued',
+          step: { label: event.message, tone: 'active' }
+        })
         addDetail('⏳', event.message, '#f59e0b')
         break
 
       case 'start':
         reconnectAttemptsRef.current = 0
-        setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', event.message, 'status')
+        upsertBuildStream({
+          heading: event.message || 'Starting code generation...',
+          subtext: '',
+          phase: 'thinking',
+          step: { label: event.message || 'Build started', tone: 'active' }
+        })
         addDetail('🚀', event.message, '#7c3aed')
         break
 
       case 'thought':
-        addMessage('assistant', event.text, 'thought')
+        upsertBuildStream({
+          heading: event.text?.slice(0, 180) || 'Planning the implementation...',
+          subtext: '',
+          phase: 'thinking'
+        })
         addDetail('💡', 'AI thinking...', '#f59e0b')
         break
 
       case 'code_start': {
         addDetail('✏️', 'Writing src/App.jsx', '#3b82f6')
-        const id = Date.now() + Math.random()
-        codeMessageIdRef.current = id
+        codeMessageIdRef.current = null
         codeChunksRef.current = ''
-        setMessages(prev => [...prev, {
-          id, role: 'assistant',
-          content: { file: 'src/App.jsx', code: '' },
-          type: 'code_stream'
-        }])
+        upsertBuildStream({
+          heading: event.message || `Writing ${event.file || 'src/App.jsx'}...`,
+          subtext: '',
+          phase: 'code',
+          file: event.file || 'src/App.jsx',
+          actionVerb: 'Editing',
+          code: '',
+          codeLines: 0,
+          step: { label: event.message || `Writing ${event.file || 'src/App.jsx'}`, tone: 'active' }
+        })
         startCodeFlush()
         break
       }
@@ -299,47 +383,56 @@ export default function Editor() {
 
       case 'code_end':
         stopCodeFlush()
-        if (codeMessageIdRef.current) {
-          const finalCode = codeChunksRef.current
-          setMessages(prev => prev.map(m =>
-            m.id === codeMessageIdRef.current
-              ? { ...m, content: { ...m.content, code: finalCode }, type: 'code_done' }
-              : m
-          ))
-          setFullCode(finalCode)
-        }
+        setFullCode(codeChunksRef.current)
+        upsertBuildStream({
+          heading: event.message || 'Code generation complete',
+          subtext: '',
+          phase: 'installing',
+          code: codeChunksRef.current,
+          codeLines: codeChunksRef.current.split('\n').length,
+          step: { label: event.message || 'Code generation complete', tone: 'done' }
+        })
         codeMessageIdRef.current = null
         addDetail('✅', 'Code generation complete', '#10b981')
         break
 
       case 'installing':
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
+        upsertBuildStream({
+          heading: event.message,
+          subtext: '',
+          phase: 'installing',
+          step: { label: event.message, tone: 'active' }
         })
         addDetail('📦', event.message, '#6366f1')
         break
 
       case 'building':
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
+        upsertBuildStream({
+          heading: event.message,
+          subtext: '',
+          phase: 'building',
+          step: { label: event.message, tone: event.message?.includes('complete') ? 'done' : 'active' }
         })
         addDetail('🔨', event.message, '#8b5cf6')
         break
 
       case 'deploying':
-        setMessages(prev => {
-          const last = prev[prev.length - 1]
-          if (last?.type === 'build_step') return prev.map(m => m.id === last.id ? { ...m, content: event.message } : m)
-          return [...prev, { id: Date.now(), role: 'assistant', content: event.message, type: 'build_step' }]
+        upsertBuildStream({
+          heading: event.message || 'Publishing your app...',
+          subtext: '',
+          phase: 'deploying',
+          step: { label: 'Deploying preview', tone: 'active' }
         })
         addDetail('🚀', 'Deploying...', '#06b6d4')
         break
 
       case 'summarizing':
+        upsertBuildStream({
+          heading: event.message || 'Generating summary...',
+          subtext: '',
+          phase: 'summarizing',
+          step: { label: 'Generating summary', tone: 'active' }
+        })
         addDetail('📝', 'Generating summary...', '#84cc16')
         break
 
@@ -358,15 +451,21 @@ export default function Editor() {
         fetchProject()
         addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
-          ...prev.filter(m => m.type !== 'build_step' && m.type !== 'status'),
+          ...prev
+            .filter(m => m.type !== 'build_step' && m.type !== 'status' && m.type !== 'thought' && m.type !== 'code_stream' && m.type !== 'code_done')
+            .map(m => m.id === buildStreamMessageIdRef.current
+              ? { ...m, content: { ...m.content, heading: 'Done', subtext: `Live at ${event.subdomain}.44gen.com`, phase: 'done' } }
+              : m),
           { id: Date.now(), role: 'assistant', content: event, type: 'complete' }
         ])
+        buildStreamMessageIdRef.current = null
         if (esRef.current) esRef.current.close()
         break
 
       case 'error':
         stopCodeFlush()
         buildStartedRef.current = false
+        buildStreamMessageIdRef.current = null
         addMessage('assistant', event.message, 'error')
         setStage('idle')
         setLoading(false)
@@ -428,11 +527,16 @@ export default function Editor() {
     buildStartedRef.current = true
     setLoading(true)
     setStage('building')
-    setActiveTab('details')
     setDetailsLog([])
     setFullCode('')
     codeChunksRef.current = ''
-    addMessage('assistant', 'Build approved. Creating build job...', 'status')
+    buildStreamMessageIdRef.current = null
+    upsertBuildStream({
+      heading: 'Creating build job...',
+      subtext: '',
+      phase: 'starting',
+      step: { label: 'Creating build job', tone: 'active' }
+    })
     setDetailsLog([{ icon: '✅', msg: 'Plan approved', color: '#10b981', ts: Date.now() }])
     await saveConversation('assistant', `Building: ${buildPlan.app_name}`, 'plan_approved')
 
@@ -450,8 +554,12 @@ export default function Editor() {
         setStage('idle'); setLoading(false); return
       }
 
-      setMessages(prev => prev.filter(m => m.type !== 'plan'))
-      addMessage('assistant', 'Build job created. Connecting to live stream...', 'status')
+      upsertBuildStream({
+        heading: 'Build job created. Opening live stream...',
+        subtext: '',
+        phase: 'connecting',
+        step: { label: 'Live stream connecting', tone: 'active' }
+      })
       setDetailsLog(prev => [...prev, { icon: '⏳', msg: 'Build job created', color: '#f59e0b', ts: Date.now() }])
       reconnectAttemptsRef.current = 0
       streamFinishedRef.current = false
@@ -512,9 +620,29 @@ export default function Editor() {
 
   // ── Message renderers ──────────────────────────────────
   const renderMessage = (msg) => {
+    if (msg.type === 'build_stream') {
+      const c = msg.content || {}
+      const iconColor = c.phase === 'done' ? '#10b981' : c.phase === 'code' ? '#3b82f6' : '#9ca3af'
+      const Icon = c.phase === 'code' ? Edit : c.phase === 'done' ? CheckCircle2 : Sparkles
+
+      return (
+        <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 9, color: muted, fontSize: 14, padding: '4px 2px', minWidth: 0 }}>
+          <Icon size={15} style={{ color: iconColor, flexShrink: 0 }} />
+          <span className={c.phase === 'done' ? '' : 'streaming-heading'} style={{
+            minWidth: 0,
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            color: c.phase === 'done' ? '#10b981' : undefined
+          }}>
+            {c.heading || 'Working...'}
+          </span>
+        </div>
+      )
+    }
+
     if (msg.type === 'status') return (
-      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 0' }}>
-        <Loader2 size={13} style={{ color: '#7c3aed', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
+      <div key={msg.id} style={{ color: muted, fontSize: 13, padding: '2px 0' }}>
         {msg.content}
       </div>
     )
@@ -560,8 +688,7 @@ export default function Editor() {
     }
 
     if (msg.type === 'build_step') return (
-      <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 12, padding: '2px 0' }}>
-        <Loader2 size={11} style={{ color: '#6366f1', flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />
+      <div key={msg.id} style={{ color: muted, fontSize: 12, padding: '2px 0' }}>
         {msg.content}
       </div>
     )
@@ -1057,6 +1184,30 @@ export default function Editor() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        @keyframes streamShimmer {
+          0% { background-position: 120% 0; opacity: 0.72; }
+          50% { opacity: 1; }
+          100% { background-position: -120% 0; opacity: 0.72; }
+        }
+        @keyframes streamGlow {
+          0%,100% { transform: translateX(-35%); opacity: 0.28; }
+          50% { transform: translateX(35%); opacity: 0.48; }
+        }
+        .streaming-heading {
+          background: linear-gradient(90deg, #7c3aed 0%, #a78bfa 28%, #22d3ee 48%, #a78bfa 68%, #7c3aed 100%);
+          background-size: 240% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: streamShimmer 2.4s ease-in-out infinite;
+        }
+        .stream-glow {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: linear-gradient(90deg, transparent, rgba(124,58,237,0.16), transparent);
+          animation: streamGlow 2.8s ease-in-out infinite;
+        }
         * { box-sizing: border-box; margin: 0; padding: 0 }
         ::-webkit-scrollbar { width: 4px; height: 4px }
         ::-webkit-scrollbar-track { background: transparent }
