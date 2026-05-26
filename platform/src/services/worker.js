@@ -187,7 +187,7 @@ async function runJob(jobId) {
     })
 
     const completionData = {
-      type: 'complete', subdomain, credits_used,
+      subdomain, credits_used,
       phase: job.plan.current_phase,
       total_phases: job.plan.total_phases,
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
@@ -209,9 +209,8 @@ async function runJob(jobId) {
       .eq('id', jobId)
 
     clearTimeout(timeoutHandle)
-    await flushPersist(jobId)
-
     emit('done', completionData)
+    await flushPersist(jobId)
 
   } catch (err) {
     clearTimeout(timeoutHandle)

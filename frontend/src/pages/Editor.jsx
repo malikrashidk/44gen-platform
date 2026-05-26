@@ -55,6 +55,7 @@ export default function Editor() {
   const handleStreamEventRef = useRef(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef(null)
+  const streamFinishedRef = useRef(false)
   const buildStartedRef = useRef(false) // prevent double-approve
 
   const d = darkMode
@@ -67,7 +68,7 @@ export default function Editor() {
 
   useEffect(() => { fetchProject() }, [projectId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-  useEffect(() => { if (projectId) { loadConversations(); checkActiveBuildJob() } }, [projectId])
+  useEffect(() => { if (projectId) { loadConversations(); loadBuildProgress(); checkActiveBuildJob() } }, [projectId])
 
   // Reset iframe status when preview changes
   useEffect(() => {
@@ -142,6 +143,35 @@ export default function Editor() {
     setMessages(loaded)
   }
 
+  const detailFromEvent = (event) => {
+    const ts = event.ts || Date.now()
+    switch (event.type) {
+      case 'queued': return { icon: '⏳', msg: event.message, color: '#f59e0b', ts }
+      case 'start': return { icon: '🚀', msg: event.message, color: '#7c3aed', ts }
+      case 'thought': return { icon: '💡', msg: 'AI thinking...', color: '#f59e0b', ts }
+      case 'code_start': return { icon: '✏️', msg: 'Writing src/App.jsx', color: '#3b82f6', ts }
+      case 'code_end': return { icon: '✅', msg: 'Code generation complete', color: '#10b981', ts }
+      case 'installing': return { icon: '📦', msg: event.message, color: '#6366f1', ts }
+      case 'building': return { icon: '🔨', msg: event.message, color: '#8b5cf6', ts }
+      case 'deploying': return { icon: '🚀', msg: 'Deploying...', color: '#06b6d4', ts }
+      case 'summarizing': return { icon: '📝', msg: 'Generating summary...', color: '#84cc16', ts }
+      case 'done':
+      case 'complete': return { icon: '✅', msg: `Live → ${event.subdomain}.44gen.com`, color: '#10b981', ts }
+      case 'error': return { icon: '❌', msg: event.message, color: '#ef4444', ts }
+      default: return null
+    }
+  }
+
+  const loadBuildProgress = async () => {
+    const { data: jobs } = await supabase
+      .from('build_jobs').select('progress')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false }).limit(1)
+
+    const details = (jobs?.[0]?.progress || []).map(detailFromEvent).filter(Boolean)
+    if (details.length) setDetailsLog(details)
+  }
+
   const checkActiveBuildJob = async () => {
     const { data: jobs } = await supabase
       .from('build_jobs').select('*')
@@ -152,6 +182,7 @@ export default function Editor() {
     if (jobs?.length) {
       setStage('building')
       setLoading(true)
+      streamFinishedRef.current = false
       addMessage('assistant', 'Reconnecting to build...', 'status')
       connectToStream(jobs[0].id)
     }
@@ -177,6 +208,7 @@ export default function Editor() {
   })
 
   const connectToStream = useCallback((jobId) => {
+    if (streamFinishedRef.current) return
     if (esRef.current) esRef.current.close()
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
 
@@ -192,17 +224,15 @@ export default function Editor() {
     }
 
     es.onerror = () => {
-      if (stageRef.current === 'building' && reconnectAttemptsRef.current < 3) {
-        reconnectAttemptsRef.current++
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (stageRef.current === 'building') connectToStream(jobId)
-        }, 2000 * reconnectAttemptsRef.current)
-      } else {
-        stopCodeFlush()
-        setStage('idle')
-        setLoading(false)
-        reconnectAttemptsRef.current = 0
+      if (streamFinishedRef.current) {
+        es.close()
+        return
       }
+      if (stageRef.current === 'building') return
+      stopCodeFlush()
+      setStage('idle')
+      setLoading(false)
+      reconnectAttemptsRef.current = 0
     }
   }, [stopCodeFlush])
 
@@ -296,7 +326,9 @@ export default function Editor() {
         break
 
       case 'done':
+      case 'complete':
         stopCodeFlush()
+        streamFinishedRef.current = true
         buildStartedRef.current = false
         setPreviewUrl('https://' + event.subdomain + '.44gen.com')
         setPreviewKey(k => k + 1)
@@ -393,14 +425,17 @@ export default function Editor() {
 
       if (error) {
         addMessage('assistant', error, 'error')
+        buildStartedRef.current = false
         setStage('idle'); setLoading(false); return
       }
 
       setMessages(prev => prev.filter(m => m.type !== 'plan'))
       reconnectAttemptsRef.current = 0
+      streamFinishedRef.current = false
       connectToStream(job_id)
     } catch {
       addMessage('assistant', 'Failed to start build.', 'error')
+      buildStartedRef.current = false
       setStage('idle'); setLoading(false)
     }
   }
