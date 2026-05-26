@@ -55,6 +55,7 @@ export default function Editor() {
   const handleStreamEventRef = useRef(null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimeoutRef = useRef(null)
+  const buildStartedRef = useRef(false) // prevent double-approve
 
   const d = darkMode
   const bg = d ? '#0f0f0f' : '#f5f5f5'
@@ -296,6 +297,7 @@ export default function Editor() {
 
       case 'done':
         stopCodeFlush()
+        buildStartedRef.current = false
         setPreviewUrl('https://' + event.subdomain + '.44gen.com')
         setPreviewKey(k => k + 1)
         setStage('done')
@@ -314,6 +316,7 @@ export default function Editor() {
 
       case 'error':
         stopCodeFlush()
+        buildStartedRef.current = false
         addMessage('assistant', event.message, 'error')
         setStage('idle')
         setLoading(false)
@@ -355,6 +358,7 @@ export default function Editor() {
         return
       }
 
+      buildStartedRef.current = false
       setPlan(planData)
       setStage('awaiting_approval')
       setMessages(prev => [
@@ -370,6 +374,8 @@ export default function Editor() {
   }
 
   const startBuild = async (buildPlan) => {
+    if (buildStartedRef.current) return
+    buildStartedRef.current = true
     setLoading(true)
     setStage('building')
     setDetailsLog([])
