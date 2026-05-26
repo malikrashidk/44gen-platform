@@ -87,6 +87,47 @@ Return ONLY valid JSON, no markdown, no backticks:
     })
 }
 
+export async function clarifyRequest({ mode, prompt, project }) {
+  return withModelFallback(async (modelName) => {
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      systemInstruction: `You classify requests for an AI app builder.
+
+Return ONLY valid JSON, no markdown:
+{
+  "action": "answer" | "questions" | "proceed",
+  "answer": "short answer if action is answer",
+  "refined_prompt": "clear rewritten request",
+  "questions": [
+    {
+      "id": "short_snake_case",
+      "type": "single" | "multi" | "text",
+      "question": "question text",
+      "options": ["option 1", "option 2"],
+      "required": true
+    }
+  ]
+}
+
+Rules:
+- mode is either "plan" or "build".
+- If the user asks a question, asks for advice, says not to edit/build, or clearly wants explanation only, use action "answer".
+- If intent is clear enough, use action "proceed".
+- Ask questions only when the missing detail would likely change the app substantially.
+- Keep questions minimal: 1 to 3 questions.
+- In build mode, small refinements should usually proceed without a plan.
+- In plan mode, proceed means create a visible plan next.`
+    })
+
+    const result = await model.generateContent(`Mode: ${mode}
+Project: ${project?.name || 'Untitled App'} (${project?.status || 'draft'})
+Existing project summary: ${project?.prompt || 'No existing summary'}
+Current prompt: "${prompt}"`)
+    const response = await result.response
+    return extractJson(response.text())
+  })
+}
+
 export async function generateCodeStream(plan, phase, onChunk, onThought) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({

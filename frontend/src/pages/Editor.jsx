@@ -42,6 +42,8 @@ export default function Editor() {
   const [selectedCodeFile, setSelectedCodeFile] = useState('')
   const [codeFilesLoading, setCodeFilesLoading] = useState(false)
   const [downloadingProject, setDownloadingProject] = useState(false)
+  const [promptMode, setPromptMode] = useState('plan')
+  const [, setPendingClarification] = useState(null)
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
@@ -78,6 +80,9 @@ export default function Editor() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (projectId) { loadConversations(); loadBuildProgress(); checkActiveBuildJob() } }, [projectId])
   useEffect(() => { if (projectId && activeTab === 'code') loadProjectFiles() }, [projectId, activeTab])
+  useEffect(() => {
+    if (project?.status === 'deployed') setPromptMode('build')
+  }, [project?.status])
 
   // Reset iframe status when preview changes
   useEffect(() => {
@@ -566,13 +571,69 @@ export default function Editor() {
     await saveConversation('user', userPrompt)
 
     try {
-      setStage('planning')
+      setStage('clarifying')
       addMessage('assistant', 'Analyzing your request...', 'status')
 
+      const clarifyRes = await fetch(`${API}/api/clarify`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ prompt: userPrompt, projectId, mode: promptMode })
+      })
+      const clarifyData = await clarifyRes.json()
+
+      if (clarifyData.error) {
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        addMessage('assistant', {
+          message: clarifyData.error,
+          retryPrompt: userPrompt,
+          retryable: clarifyData.retryable !== false
+        }, 'error')
+        setStage('idle')
+        setLoading(false)
+        return
+      }
+
+      if (clarifyData.action === 'answer') {
+        setMessages(prev => [
+          ...prev.filter(m => m.type !== 'status'),
+          { id: Date.now(), role: 'assistant', content: clarifyData.answer || 'I can help with that.', type: 'message' }
+        ])
+        await saveConversation('assistant', clarifyData.answer || 'I can help with that.')
+        setStage('idle')
+        setLoading(false)
+        return
+      }
+
+      if (clarifyData.action === 'questions' && clarifyData.questions?.length) {
+        const questionCard = {
+          mode: promptMode,
+          originalPrompt: userPrompt,
+          refinedPrompt: clarifyData.refined_prompt || userPrompt,
+          questions: clarifyData.questions,
+          answers: {}
+        }
+        setPendingClarification(questionCard)
+        setMessages(prev => [
+          ...prev.filter(m => m.type !== 'status'),
+          { id: Date.now(), role: 'assistant', content: questionCard, type: 'clarify' }
+        ])
+        setStage('awaiting_clarification')
+        setLoading(false)
+        return
+      }
+
+      const refinedPrompt = clarifyData.refined_prompt || userPrompt
+      if (promptMode === 'build') {
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        await startDirectBuild(refinedPrompt)
+        return
+      }
+
+      setStage('planning')
       const res = await fetch(`${API}/api/plan`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ prompt: userPrompt, projectId })
+        body: JSON.stringify({ prompt: refinedPrompt, projectId })
       })
       const planData = await res.json()
 
@@ -611,6 +672,114 @@ export default function Editor() {
     e?.preventDefault()
     if (!prompt.trim() || loading) return
     await submitPromptText(prompt.trim())
+  }
+
+  const promptWithAnswers = (clarification) => {
+    const answerText = clarification.questions.map(q => {
+      const value = clarification.answers?.[q.id]
+      const rendered = Array.isArray(value) ? value.join(', ') : value
+      return rendered ? `${q.question}: ${rendered}` : null
+    }).filter(Boolean).join('\n')
+
+    return `${clarification.refinedPrompt || clarification.originalPrompt}
+
+Clarifying answers:
+${answerText}`
+  }
+
+  const updateClarificationAnswer = (messageId, question, value) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      const current = m.content.answers?.[question.id]
+      let nextValue = value
+      if (question.type === 'multi') {
+        const list = Array.isArray(current) ? current : []
+        nextValue = list.includes(value) ? list.filter(item => item !== value) : [...list, value]
+      }
+      const nextContent = {
+        ...m.content,
+        answers: { ...m.content.answers, [question.id]: nextValue }
+      }
+      setPendingClarification(nextContent)
+      return { ...m, content: nextContent }
+    }))
+  }
+
+  const continueClarification = async (messageId, clarification) => {
+    const missing = clarification.questions.some(q => q.required && !clarification.answers?.[q.id]?.length)
+    if (missing || loading) return
+    const finalPrompt = promptWithAnswers(clarification)
+    setMessages(prev => prev.filter(m => m.id !== messageId))
+    setPendingClarification(null)
+    setLoading(true)
+
+    if (clarification.mode === 'build') {
+      await startDirectBuild(finalPrompt)
+      return
+    }
+
+    try {
+      setStage('planning')
+      addMessage('assistant', 'Creating plan...', 'status')
+      const res = await fetch(`${API}/api/plan`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ prompt: finalPrompt, projectId })
+      })
+      const planData = await res.json()
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      if (planData.error) {
+        addMessage('assistant', { message: planData.error, retryPrompt: finalPrompt, retryable: planData.retryable !== false }, 'error')
+        setStage('idle')
+      } else {
+        buildStartedRef.current = false
+        setPlan(planData)
+        setStage('awaiting_approval')
+        setMessages(prev => [...prev, { id: Date.now(), role: 'assistant', content: planData, type: 'plan' }])
+      }
+    } catch {
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      addMessage('assistant', { message: 'Something went wrong. Try again.', retryPrompt: finalPrompt, retryable: true }, 'error')
+      setStage('idle')
+    }
+    setLoading(false)
+  }
+
+  const startDirectBuild = async (buildPrompt) => {
+    if (buildStartedRef.current) return
+    buildStartedRef.current = true
+    setLoading(true)
+    setStage('building')
+    setDetailsLog([])
+    setFullCode('')
+    codeChunksRef.current = ''
+    buildStreamMessageIdRef.current = null
+    upsertBuildStream({ heading: 'Creating build job...', subtext: '', phase: 'starting' })
+
+    try {
+      const res = await fetch(`${API}/api/build/direct`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ prompt: buildPrompt, projectId })
+      })
+      const { job_id, error } = await res.json()
+      if (error) {
+        addMessage('assistant', error, 'error')
+        buildStartedRef.current = false
+        setStage('idle')
+        setLoading(false)
+        return
+      }
+      upsertBuildStream({ heading: 'Build job created. Opening live stream...', subtext: '', phase: 'connecting' })
+      reconnectAttemptsRef.current = 0
+      streamFinishedRef.current = false
+      connectToStream(job_id)
+    } catch {
+      addMessage('assistant', 'Failed to start build.', 'error')
+      buildStartedRef.current = false
+      setStage('idle')
+      setLoading(false)
+    }
   }
 
   const startBuild = async (buildPlan) => {
@@ -813,6 +982,68 @@ export default function Editor() {
         )
       })()
     )
+
+    if (msg.type === 'clarify') {
+      const c = msg.content
+      const missing = c.questions.some(q => q.required && !c.answers?.[q.id]?.length)
+      return (
+        <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#7c3aed', fontWeight: 700, marginBottom: 10 }}>
+            <Sparkles size={14} />
+            Need a bit more detail
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {c.questions.map(q => (
+              <div key={q.id}>
+                <p style={{ color: text, fontWeight: 600, marginBottom: 7, lineHeight: 1.4 }}>{q.question}</p>
+                {(q.type === 'single' || q.type === 'multi') && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {q.options?.map(option => {
+                      const current = c.answers?.[q.id]
+                      const active = q.type === 'multi'
+                        ? Array.isArray(current) && current.includes(option)
+                        : current === option
+                      return (
+                        <button key={option} onClick={() => updateClarificationAnswer(msg.id, q, option)}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 999,
+                            border: `1px solid ${active ? '#7c3aed' : border}`,
+                            background: active ? 'rgba(124,58,237,0.12)' : subtle,
+                            color: active ? '#7c3aed' : text,
+                            fontSize: 12,
+                            cursor: 'pointer',
+                            fontWeight: active ? 600 : 500
+                          }}>
+                          {option}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {q.type === 'text' && (
+                  <input value={c.answers?.[q.id] || ''}
+                    onChange={e => updateClarificationAnswer(msg.id, q, e.target.value)}
+                    placeholder="Type your answer..."
+                    style={{ width: '100%', background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14, paddingTop: 12, borderTop: `1px solid ${border}` }}>
+            <button onClick={() => { setMessages(prev => prev.filter(m => m.id !== msg.id)); setPendingClarification(null); setStage('idle') }}
+              style={{ fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '6px 11px', borderRadius: 8, cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={() => continueClarification(msg.id, c)}
+              disabled={missing || loading}
+              style={{ fontSize: 12, color: '#fff', background: missing || loading ? '#7c3aed66' : '#7c3aed', border: 'none', padding: '6px 12px', borderRadius: 8, cursor: missing || loading ? 'default' : 'pointer', fontWeight: 700 }}>
+              Continue
+            </button>
+          </div>
+        </div>
+      )
+    }
 
     if (msg.type === 'plan') {
       const p = msg.content
@@ -1169,25 +1400,48 @@ export default function Editor() {
 
             {/* Input */}
             <div style={{ padding: 10, borderTop: `1px solid ${border}`, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                {['plan', 'build'].map(mode => (
+                  <button key={mode} onClick={() => setPromptMode(mode)}
+                    disabled={loading || stage === 'building' || stage === 'awaiting_approval' || stage === 'awaiting_clarification'}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: `1px solid ${promptMode === mode ? '#7c3aed' : border}`,
+                      background: promptMode === mode ? 'rgba(124,58,237,0.12)' : 'transparent',
+                      color: promptMode === mode ? '#7c3aed' : muted,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: loading ? 'default' : 'pointer',
+                      textTransform: 'capitalize'
+                    }}>
+                    {mode}
+                  </button>
+                ))}
+                <span style={{ fontSize: 11, color: d ? '#444' : '#aaa', marginLeft: 'auto' }}>
+                  {promptMode === 'plan' ? 'Plan first' : 'Build directly'}
+                </span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, background: d ? '#111' : '#fff', border: `1px solid ${border}`, borderRadius: 12, padding: '7px 9px' }}>
                 <textarea ref={textareaRef} value={prompt}
                   onChange={handlePromptChange}
                   onKeyDown={handleKeyDown}
                   placeholder={
                     stage === 'awaiting_approval' ? 'Approve or cancel the plan first...' :
+                    stage === 'awaiting_clarification' ? 'Answer the questions first...' :
                     stage === 'building' ? 'Building your app...' :
-                    'Describe your app or request changes...'
+                    promptMode === 'plan' ? 'Describe your app to plan...' : 'Ask, refine, or request changes...'
                   }
-                  disabled={loading || stage === 'awaiting_approval' || stage === 'building'}
+                  disabled={loading || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
                   rows={1}
                   style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 13, color: text, lineHeight: 1.5, fontFamily: 'inherit', overflow: 'hidden' }}
                 />
                 <button onClick={handleSubmit}
-                  disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'building'}
-                  style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && stage === 'idle' ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && stage === 'idle' ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {loading && stage === 'planning'
+                  disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
+                  style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 7, background: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#7c3aed' : (d ? '#222' : '#e5e5e5'), border: 'none', cursor: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {loading && (stage === 'planning' || stage === 'clarifying')
                     ? <Loader2 size={12} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
-                    : <Send size={12} style={{ color: prompt.trim() && stage === 'idle' ? '#fff' : muted }} />}
+                    : <Send size={12} style={{ color: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#fff' : muted }} />}
                 </button>
               </div>
               <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
