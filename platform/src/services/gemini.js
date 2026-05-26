@@ -49,30 +49,65 @@ function extractJson(text) {
   throw new Error('No valid JSON found in response')
 }
 
+// Parse multi-file output format: ===FILE:path=== ... ===FILE:path=== ...
+// Falls back to single App.jsx if no delimiters found
+export function parseMultiFileOutput(text) {
+  const delimiter = /===FILE:([^=\n]+)===/g
+  const parts = text.split(delimiter)
+
+  // parts = [beforeFirst, path1, content1, path2, content2, ...]
+  if (parts.length < 3) {
+    // No delimiters — single file output
+    return [{ path: 'src/App.jsx', content: text.trim() }]
+  }
+
+  const files = []
+  // parts[0] is text before first delimiter (ignore)
+  for (let i = 1; i < parts.length - 1; i += 2) {
+    const filePath = parts[i].trim()
+    const content = parts[i + 1].trim()
+    if (filePath && content) {
+      files.push({ path: filePath, content })
+    }
+  }
+
+  return files.length > 0
+    ? files
+    : [{ path: 'src/App.jsx', content: text.trim() }]
+}
+
 export async function generatePlan(prompt) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
       model: modelName,
       systemInstruction: `You are a senior software architect analyzing a user's app request.
-Determine if the request is simple or complex, and identify the app category and visual theme.
+Determine if the request is simple or complex, identify the app category, visual theme, and list all files to generate.
 
 COMPLEXITY RULES:
-- Simple: single clear feature, one main screen
+- Simple: single clear feature, one main screen (tool, calculator, small utility)
 - Complex: multiple distinct features or screens requiring phases
-- Landing pages, websites, calculators, dashboards, and small tools are usually simple unless the user asks for many pages/features.
 
 APP CATEGORIES (pick the best match):
 - "landing" — marketing site, homepage, product page, SaaS landing
 - "dashboard" — admin panel, analytics, CRM, management interface
-- "tool" — calculator, generator, converter, utility, form
+- "tool" — calculator, generator, converter, utility
 - "portfolio" — personal site, showcase, resume, brand page
 - "ecommerce" — shop, product listing, store, cart
 - "app" — social app, productivity app, multi-screen application
 - "other" — anything else
 
 COLOR THEME:
-- Suggest "dark" only if user explicitly asks for dark mode or it strongly fits the domain (e.g. code editor, terminal, night-mode app)
+- Suggest "dark" only if user explicitly asks for dark mode or it strongly fits the domain (code editor, terminal)
 - Default to "light" for everything else
+
+FILES LIST — Based on category, list the actual component files to generate:
+- landing: ["src/App.jsx", "src/components/Navbar.jsx", "src/components/Hero.jsx", "src/components/Features.jsx", "src/components/Pricing.jsx", "src/components/Footer.jsx"]
+- dashboard: ["src/App.jsx", "src/components/Sidebar.jsx", "src/components/Header.jsx", "src/pages/Dashboard.jsx"]
+- tool/simple: ["src/App.jsx"]
+- portfolio: ["src/App.jsx", "src/components/Navbar.jsx", "src/components/Hero.jsx", "src/components/Work.jsx", "src/components/Contact.jsx"]
+- ecommerce: ["src/App.jsx", "src/components/Header.jsx", "src/components/ProductGrid.jsx", "src/components/ProductCard.jsx", "src/components/Cart.jsx"]
+- app (complex): ["src/App.jsx", "src/components/Layout.jsx", "src/pages/Home.jsx"] + relevant pages
+- Adjust the list to match what the specific request actually needs — don't include files that aren't needed.
 
 Return ONLY valid JSON, no markdown, no backticks:
 {
@@ -174,8 +209,8 @@ RULES:
 • Hero/page title:    text-5xl md:text-6xl font-bold tracking-tight leading-tight
 • Section heading:    text-3xl font-bold tracking-tight
 • Card/sub heading:   text-lg font-semibold
-• Body text:          text-base text-slate-600 leading-relaxed (or text-slate-400 on dark)
-• Small label/meta:   text-sm text-slate-500 (or text-slate-400 on dark)
+• Body text:          text-base text-slate-600 leading-relaxed
+• Small label/meta:   text-sm text-slate-500
 • Never mix more than 2 font weights per component
 
 ━━━ SPACING & LAYOUT ━━━
@@ -209,67 +244,82 @@ Section order: Navbar → Hero → Social proof → Features (3-col) → How it 
 • Navbar: Logo left, nav links center (hidden on mobile), CTA button right, sticky with backdrop-blur
 • Hero: Strong headline (what + benefit), 1-line subtext, primary CTA + secondary link, social proof below (user count / logos / ratings), optional metric row
 • Features: 3-column grid, each with icon, heading, and 2-3 sentence description
-• Pricing: 3 tiers (Free / Pro / Business), highlight middle tier with border-indigo-500 ring, feature checklist per tier
+• Pricing: 3 tiers (Free / Pro / Business), highlight middle tier with ring, feature checklist per tier
 • Testimonials: 2-3 cards with avatar, name, role, company, and quote
 • Footer: Logo, 3-4 link columns, copyright
 
 DASHBOARD / ADMIN / CRM:
 Layout: Fixed sidebar (w-64) + scrollable main area
 • Sidebar: Logo at top, nav items with icons + labels, active item highlighted, user info at bottom
-• Top of main: Page title + subtitle + action button, then 3-4 metric cards in a row (each with label, big number, trend badge ↑↓ with color)
+• Top of main: Page title + subtitle + action button, then 3-4 metric cards in a row (each with label, big number, trend badge)
 • Content area: Charts (use recharts BarChart or LineChart with real data) + data table with sortable columns
 • Table: header row, 6-8 realistic rows, status badges (colored pills), action buttons per row
-• Mobile: sidebar becomes hidden, hamburger menu
 
 TOOL / CALCULATOR / GENERATOR:
-Layout: Two-panel on desktop (input 40% left, output 60% right), stacked on mobile
+Layout: Two-panel on desktop (input left, output right), stacked on mobile
 • Input panel: Clean card with labeled inputs, help text under fields, prominent primary CTA button at bottom
-• Output panel: Clearly formatted results with hierarchy, copy-to-clipboard button, visual chart or breakdown if relevant
+• Output panel: Clearly formatted results with hierarchy, copy-to-clipboard button
 • Real-time update where possible (useEffect on input changes)
 • Empty state: Centered icon + "Fill in the details to see your results" message
 
 PORTFOLIO / PERSONAL BRAND:
 • Full-viewport hero: Name, role/title, 1-line bio, 2 CTAs, social links as icon buttons
-• Work/Projects grid: 2-3 columns, each card has colored placeholder, project name, category tag, hover overlay with "View Project"
-• About section: 2-col layout (bio text + skills/stack list)
-• Contact: Simple form with name, email, message + social links
+• Work/Projects grid: 2-3 columns, each card has colored placeholder, project name, category tag, hover overlay
+• About section, Skills section, Contact form
 
 E-COMMERCE:
 • Header: Logo, search bar, cart icon with count badge
-• Product grid: 4 columns (2 on mobile), each card: image placeholder, product name, price, star rating, "Add to Cart" button
+• Product grid: 4 columns (2 on mobile), each card: image placeholder, product name, price, star rating, Add to Cart button
 • Filter bar: horizontal chips for categories
-• Cart sidebar or page with item list + totals
 
 ━━━ WHAT TO AVOID ━━━
-✗ Purple/rainbow gradient on every element — only on hero headlines if at all
+✗ Purple/rainbow gradient on every element
 ✗ Wireframe-looking forms — all inputs must be properly styled
 ✗ "Coming Soon" sections or empty placeholder grids
 ✗ Feature sections with just an icon and 3 words
 ✗ Lorem ipsum or "placeholder text here"
 ✗ "Feature 1 / Feature 2 / Feature 3" — use real names
-✗ All-caps body text or button text
 ✗ Missing hover states on any button, link, or card
 ✗ Only 2-3 rows in a data table — use 6-8
-✗ Unstyled native <select> or <input type="file"> elements
 ✗ Empty states missing — every list must handle 0 items gracefully
-✗ Centering everything — dashboards need sidebar + content layout
+
+━━━ MULTI-FILE OUTPUT FORMAT ━━━
+For SIMPLE apps (single tool, calculator, small utility): output a single file with no delimiters.
+
+For apps with multiple sections or views (landing pages, dashboards, portfolios, multi-page apps):
+Split into focused component files using this EXACT format — no markdown, no backticks around it:
+
+===FILE:src/App.jsx===
+[full content of App.jsx]
+===FILE:src/components/Navbar.jsx===
+[full content of Navbar.jsx]
+===FILE:src/pages/Dashboard.jsx===
+[full content of Dashboard.jsx]
+
+Multi-file rules:
+- App.jsx is always the entry point; it imports and composes all components/pages
+- Components go in src/components/, pages go in src/pages/
+- Use relative imports: import Navbar from './components/Navbar'
+- Every file must have exactly one default export
+- Keep each component focused — one clear responsibility
+- State that needs sharing goes in App.jsx and is passed as props
+- Do NOT use the ===FILE:=== format for single-file output
 
 ━━━ TECHNICAL RULES ━━━
 - React hooks only (useState, useEffect, useCallback, useMemo, useRef)
 - Tailwind CSS via CDN — all utility classes work
-- Single App.jsx file
-- react-router-dom only if multi-page routing is needed
+- react-router-dom only if multi-page routing is explicitly needed
 - recharts for charts: BarChart, LineChart, PieChart, AreaChart — always include realistic data arrays
-- Only these lucide-react icons: Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield, Package, FileText, Briefcase, MapPin, CreditCard, Layers, Cpu, Database, GitBranch, Terminal, Hash, Inbox, Bookmark, Tag, Award, Target, PieChart, LayoutDashboard, Sidebar
+- Only these lucide-react icons: Home, User, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Users, Shield, Package, FileText, Briefcase, MapPin, CreditCard, Layers, Cpu, Database, GitBranch, Terminal, Hash, Inbox, Bookmark, Tag, Award, Target, PieChart, LayoutDashboard
 - Only packages: react, react-dom, react-router-dom, lucide-react, recharts, axios, date-fns, clsx
-- MUST have exactly one default export: \`export default function App()\` or \`export default App\` at the end
-- If adding CSS in a <style> tag, it MUST be JSX-safe: \`<style>{\`css here\`}</style>\`. Never put raw CSS directly between <style> and </style>.
+- Each file MUST have exactly one default export
+- If adding CSS in a <style> tag, it MUST be JSX-safe: \`<style>{\`css here\`}</style>\`
 - Prefer Tailwind classes and inline style objects over <style> tags
-- Do not wrap the answer in markdown fences. First characters must be an import statement, not \`\`\`
-- Do not return an HTML document. Never include \`<!doctype>\`, \`<html>\`, \`<head>\`, \`<body>\`, \`<script>\`, CDN scripts, or ReactDOM render calls
-- Import dependencies from package names only. Use \`from 'lucide-react'\`, never URL imports like \`https://esm.sh/...\`
-- Return exactly one React module for src/App.jsx. The platform provides index.html and main.jsx already
-- Return ONLY raw JSX starting with imports. No markdown, no backticks, no explanations`
+- Do not wrap any file content in markdown fences
+- Do not return an HTML document — never include <!doctype>, <html>, <head>, <body>, <script>, CDN scripts, or ReactDOM render calls
+- Import dependencies from package names only — never URL imports like https://esm.sh/...
+- The platform provides index.html and main.jsx already — do not generate those
+- Return ONLY the file content (with ===FILE:=== delimiters if multi-file). No markdown, no backticks, no explanations.`
 
 export async function generateCodeStream(plan, phase, onChunk, onThought) {
   return withModelFallback(async (modelName) => {
@@ -284,19 +334,21 @@ export async function generateCodeStream(plan, phase, onChunk, onThought) {
 
     const category = plan.app_category || 'general'
     const colorTheme = plan.color_theme || 'light'
+    const isMultiFile = plan.files && plan.files.length > 1
 
     const userPrompt = `App category: ${category}
 Color theme: ${colorTheme}
-Build: ${plan.understanding}
 App name: ${plan.app_name || 'App'}
+Build: ${plan.understanding}
 Steps:
 ${steps}
+${isMultiFile ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files.join('\n')}` : '\nOutput format: single file (no ===FILE:=== delimiters)'}
 
 Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketing site' : category === 'dashboard' ? 'production admin dashboard' : category === 'tool' ? 'polished web tool' : category === 'portfolio' ? 'professional portfolio' : 'production app'}. The first screen must be immediately impressive — professional layout, real content, polished interactions. Not a demo or scaffold.`
 
     const stream = await model.generateContentStream(userPrompt)
 
-    let fullCode = ''
+    let fullText = ''
 
     for await (const chunk of stream.stream) {
       const parts = chunk.candidates?.[0]?.content?.parts || []
@@ -307,7 +359,7 @@ Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketi
           onThought(part.text)
           hasContent = true
         } else if (part.text && !part.thought) {
-          fullCode += part.text
+          fullText += part.text
           if (onChunk) onChunk(part.text)
           hasContent = true
         }
@@ -316,7 +368,7 @@ Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketi
       if (!hasContent) {
         try {
           const t = chunk.text()
-          if (t) { fullCode += t; if (onChunk) onChunk(t) }
+          if (t) { fullText += t; if (onChunk) onChunk(t) }
         } catch {}
       }
     }
@@ -325,7 +377,10 @@ Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketi
     const usage = finalResponse.usageMetadata
     const totalTokens = (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
 
-    return { code: fullCode, tokens_used: totalTokens }
+    const files = parseMultiFileOutput(fullText)
+    console.log(`[Gemini] Generated ${files.length} file(s): ${files.map(f => f.path).join(', ')}`)
+
+    return { files, tokens_used: totalTokens }
   })
 }
 
@@ -381,7 +436,7 @@ export async function generateSummary(plan, filesWritten) {
   "title": "short title",
   "description": "2-3 sentences about the app",
   "features": ["feature 1", "feature 2", "feature 3"],
-  "files_written": ["src/App.jsx"],
+  "files_written": ${JSON.stringify(filesWritten)},
   "tech": ["React", "Tailwind CSS"]
 }
 
