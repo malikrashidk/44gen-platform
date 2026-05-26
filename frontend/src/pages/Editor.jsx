@@ -76,6 +76,7 @@ export default function Editor() {
   const text = d ? '#f0f0f0' : '#1f1f23'
   const muted = d ? '#777' : '#7b7670'
   const subtle = d ? '#1a1a1a' : '#f5f2ed'
+  const userBubble = d ? '#262321' : '#f1eee9'
 
   useEffect(() => { fetchProject() }, [projectId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -240,7 +241,7 @@ export default function Editor() {
     const ts = event.ts || Date.now()
     switch (event.type) {
       case 'queued': return { icon: '⏳', msg: event.message, color: '#f59e0b', ts }
-      case 'start': return { icon: '🚀', msg: event.message, color: '#7c3aed', ts }
+      case 'start': return { icon: '🚀', msg: event.message, color: '#BC6045', ts }
       case 'thought': return { icon: '💡', msg: 'AI thinking...', color: '#f59e0b', ts }
       case 'code_start': return { icon: '✏️', msg: 'Writing src/App.jsx', color: '#3b82f6', ts }
       case 'code_end': return { icon: '✅', msg: 'Code generation complete', color: '#10b981', ts }
@@ -365,7 +366,7 @@ export default function Editor() {
     esRef.current = es
 
     es.onopen = () => {
-      setDetailsLog(prev => [...prev, { icon: '🔌', msg: 'Live stream connected', color: '#7c3aed', ts: Date.now() }])
+      setDetailsLog(prev => [...prev, { icon: '🔌', msg: 'Live stream connected', color: '#BC6045', ts: Date.now() }])
     }
 
     es.onmessage = (e) => {
@@ -423,7 +424,7 @@ export default function Editor() {
           phase: 'thinking',
           step: { label: event.message || 'Build started', tone: 'active' }
         })
-        addDetail('🚀', event.message, '#7c3aed')
+        addDetail('🚀', event.message, '#BC6045')
         break
 
       case 'thought':
@@ -943,7 +944,7 @@ ${answerText}`
             <FileCode size={11} style={{ color: '#3b82f6' }} />
             <span style={{ color: muted, fontFamily: 'monospace', fontSize: 11 }}>src/App.jsx</span>
             {streaming
-              ? <Loader2 size={10} style={{ color: '#7c3aed', marginLeft: 'auto', animation: 'spin 0.8s linear infinite' }} />
+              ? <Loader2 size={10} style={{ color: '#BC6045', marginLeft: 'auto', animation: 'spin 0.8s linear infinite' }} />
               : <CheckCircle2 size={10} style={{ color: '#10b981', marginLeft: 'auto' }} />}
           </div>
           <div style={{ padding: '8px 10px', fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.5, maxHeight: 140, overflow: 'hidden' }}>
@@ -954,7 +955,7 @@ ${answerText}`
               <div style={{ color: muted, marginTop: 2 }}>+{code.split('\n').length - 10} more lines</div>
             )}
             {streaming && (
-              <span style={{ display: 'inline-block', width: 7, height: 13, background: '#7c3aed', marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 0.8s step-end infinite' }} />
+              <span style={{ display: 'inline-block', width: 7, height: 13, background: '#BC6045', marginLeft: 2, verticalAlign: 'text-bottom', animation: 'blink 0.8s step-end infinite' }} />
             )}
           </div>
         </div>
@@ -993,7 +994,7 @@ ${answerText}`
       const missing = c.questions.some(q => q.required && !c.answers?.[q.id]?.length)
       return (
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#7c3aed', fontWeight: 700, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#BC6045', fontWeight: 700, marginBottom: 10 }}>
             <Sparkles size={14} />
             Need a bit more detail
           </div>
@@ -1013,9 +1014,9 @@ ${answerText}`
                           style={{
                             padding: '6px 10px',
                             borderRadius: 999,
-                            border: `1px solid ${active ? '#7c3aed' : border}`,
-                            background: active ? 'rgba(124,58,237,0.12)' : subtle,
-                            color: active ? '#7c3aed' : text,
+                            border: `1px solid ${active ? '#BC6045' : border}`,
+                            background: active ? 'rgba(188,96,69,0.12)' : subtle,
+                            color: active ? '#BC6045' : text,
                             fontSize: 12,
                             cursor: 'pointer',
                             fontWeight: active ? 600 : 500
@@ -1042,7 +1043,7 @@ ${answerText}`
             </button>
             <button onClick={() => continueClarification(msg.id, c)}
               disabled={missing || loading}
-              style={{ fontSize: 12, color: '#fff', background: missing || loading ? '#7c3aed66' : '#7c3aed', border: 'none', padding: '6px 12px', borderRadius: 8, cursor: missing || loading ? 'default' : 'pointer', fontWeight: 700 }}>
+              style={{ fontSize: 12, color: '#fff', background: missing || loading ? '#BC604566' : '#BC6045', border: 'none', padding: '6px 12px', borderRadius: 8, cursor: missing || loading ? 'default' : 'pointer', fontWeight: 700 }}>
               Continue
             </button>
           </div>
@@ -1085,7 +1086,7 @@ ${answerText}`
       return (
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#7c3aed', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#BC6045', fontWeight: 600 }}>
               <Sparkles size={13} />
               {p.total_phases > 1 && p.current_phase > 1 ? `Phase ${p.current_phase} Plan` : 'Plan Ready'}
             </div>
@@ -1107,7 +1108,7 @@ ${answerText}`
             </p>
             {(p.is_complex ? p.phases?.[p.current_phase - 1]?.steps : p.steps)?.map((step, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: text, alignItems: 'flex-start' }}>
-                <ChevronRight size={11} style={{ color: '#7c3aed', marginTop: 3, flexShrink: 0 }} />
+                <ChevronRight size={11} style={{ color: '#BC6045', marginTop: 3, flexShrink: 0 }} />
                 <span style={{ lineHeight: 1.4 }}>{step}</span>
               </div>
             ))}
@@ -1143,7 +1144,7 @@ ${answerText}`
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: `1px solid ${border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted }}>
-              <Zap size={11} style={{ color: '#7c3aed' }} /> Est. {p.estimated_credits} credits
+              <Zap size={11} style={{ color: '#BC6045' }} /> Est. {p.estimated_credits} credits
             </div>
             {p.approved ? (
               <button onClick={() => setMessages(prev => prev.map(m =>
@@ -1157,7 +1158,7 @@ ${answerText}`
                 <button onClick={handleRejectPlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, background: 'none', border: `1px solid ${border}`, padding: '5px 10px', borderRadius: 7, cursor: 'pointer' }}>
                   <X size={11} /> Cancel
                 </button>
-                <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#7c3aed', border: 'none', padding: '5px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                <button onClick={handleApprovePlan} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#fff', background: '#BC6045', border: 'none', padding: '5px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
                   <Check size={11} /> Approve & Build
                 </button>
               </div>
@@ -1227,10 +1228,10 @@ ${answerText}`
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, color: muted, fontSize: 12, paddingTop: 8, borderTop: `1px solid ${border}` }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Zap size={11} style={{ color: '#7c3aed' }} /> {c.credits_used} credits
+                  <Zap size={11} style={{ color: '#BC6045' }} /> {c.credits_used} credits
                 </span>
                 <a href={'https://' + c.subdomain + '.44gen.com'} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#7c3aed', textDecoration: 'none', fontSize: 12 }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#BC6045', textDecoration: 'none', fontSize: 12 }}>
                   <Globe size={11} /> {c.subdomain}.44gen.com <ExternalLink size={10} />
                 </a>
               </div>
@@ -1257,9 +1258,9 @@ ${answerText}`
       <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
         <div style={{
           maxWidth: '85%', borderRadius: 14, padding: '9px 13px', fontSize: 13, lineHeight: 1.5,
-          background: msg.role === 'user' ? '#7c3aed' : (d ? '#1a1a1a' : '#f0f0f0'),
-          color: msg.role === 'user' ? '#fff' : text,
-          border: msg.role === 'user' ? 'none' : `1px solid ${border}`
+          background: msg.role === 'user' ? userBubble : (d ? '#1a1a1a' : '#f3f1ed'),
+          color: text,
+          border: `1px solid ${border}`
         }}>
           {msg.content}
         </div>
@@ -1280,14 +1281,14 @@ ${answerText}`
           {/* Chat toggle — always visible, highlights when chat is hidden */}
           <button onClick={() => setShowChat(v => !v)}
             title={showChat ? 'Hide chat' : 'Show chat'}
-            style={{ color: showChat ? '#7c3aed' : muted, background: showChat ? 'rgba(124,58,237,0.08)' : 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}>
+            style={{ color: showChat ? '#BC6045' : muted, background: showChat ? 'rgba(188,96,69,0.08)' : 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}>
             <MessageSquare size={14} />
           </button>
           <div style={{ minWidth: 0 }}>
             {renaming ? (
               <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onBlur={handleRename} onKeyDown={e => e.key === 'Enter' && handleRename()}
-                style={{ background: subtle, border: `1px solid #7c3aed`, borderRadius: 5, padding: '2px 7px', color: text, fontSize: 13, fontWeight: 500, outline: 'none', width: 140 }} />
+                style={{ background: subtle, border: `1px solid #BC6045`, borderRadius: 5, padding: '2px 7px', color: text, fontSize: 13, fontWeight: 500, outline: 'none', width: 140 }} />
             ) : (
               <button onClick={() => setRenaming(true)} style={{ background: 'none', border: 'none', color: text, fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>
                 {project?.name || 'Untitled App'}
@@ -1306,11 +1307,11 @@ ${answerText}`
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {isBuilding && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}` }}>
-              <Loader2 size={10} style={{ color: '#7c3aed', animation: 'spin 0.8s linear infinite' }} /> Building...
+              <Loader2 size={10} style={{ color: '#BC6045', animation: 'spin 0.8s linear infinite' }} /> Building...
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}` }}>
-            <Zap size={11} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0}
+            <Zap size={11} style={{ color: '#BC6045' }} /> {profile?.credits ?? 0}
           </div>
           {previewUrl && (
             <button onClick={copyPreviewUrl}
@@ -1324,7 +1325,7 @@ ${answerText}`
           </button>
           {previewUrl && (
             <button onClick={() => setShowPublishPanel(v => !v)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg,#6d5dfc,#4f46e5)', padding: '6px 13px', borderRadius: 9, border: 'none', cursor: 'pointer', boxShadow: '0 8px 18px rgba(79,70,229,0.22)' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg,#BC6045,#9f4d38)', padding: '6px 13px', borderRadius: 9, border: 'none', cursor: 'pointer', boxShadow: '0 8px 18px rgba(188,96,69,0.22)' }}>
               <Globe size={11} /> <span className="hide-xs">Publish</span>
             </button>
           )}
@@ -1336,7 +1337,7 @@ ${answerText}`
                   <h3 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: text }}>Published</h3>
                   <p style={{ fontSize: 12, color: muted, marginTop: 4 }}>Your app is live and shareable.</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(79,70,229,0.35)', color: '#4f46e5', borderRadius: 10, padding: '7px 10px', fontSize: 12, fontWeight: 800 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(188,96,69,0.35)', color: '#9f4d38', borderRadius: 10, padding: '7px 10px', fontSize: 12, fontWeight: 800 }}>
                   <Activity size={13} /> 1 visitor
                 </div>
               </div>
@@ -1344,8 +1345,8 @@ ${answerText}`
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: text }}>Website URL</span>
-                    <button style={{ display: 'flex', alignItems: 'center', gap: 5, color: text, background: 'none', border: 'none', fontSize: 12, cursor: 'pointer' }}>
-                      <Globe size={12} /> Add custom domain
+                    <button disabled title="Coming soon" style={{ display: 'flex', alignItems: 'center', gap: 5, color: muted, background: 'none', border: 'none', fontSize: 12, cursor: 'default', opacity: 0.65 }}>
+                      <Globe size={12} /> Custom domain soon
                     </button>
                   </div>
                   <button onClick={copyPreviewUrl} style={{ width: '100%', minHeight: 48, borderRadius: 12, border: `1px solid ${border}`, background: d ? '#111' : '#fbfaf8', color: text, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 13px', cursor: 'pointer', fontSize: 13 }}>
@@ -1354,7 +1355,7 @@ ${answerText}`
                   </button>
                 </div>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 12, background: subtle, border: `1px solid ${border}` }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 10, background: surface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', border: `1px solid ${border}` }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: surface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9f4d38', border: `1px solid ${border}` }}>
                     <Shield size={17} />
                   </div>
                   <div>
@@ -1363,10 +1364,10 @@ ${answerText}`
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
-                  <button style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Review security</button>
-                  <button style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Edit settings</button>
+                  <button disabled title="Coming soon" style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: subtle, color: muted, fontSize: 13, fontWeight: 700, cursor: 'default', opacity: 0.72 }}>Security soon</button>
+                  <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>Open site</a>
                 </div>
-                <div style={{ background: 'linear-gradient(135deg,#a5b4fc,#818cf8)', color: '#fff', borderRadius: 10, padding: '10px 12px', textAlign: 'center', fontSize: 13, fontWeight: 800 }}>
+                <div style={{ background: 'linear-gradient(135deg,#d18a74,#BC6045)', color: '#fff', borderRadius: 10, padding: '10px 12px', textAlign: 'center', fontSize: 13, fontWeight: 800 }}>
                   Up to date
                 </div>
               </div>
@@ -1374,7 +1375,7 @@ ${answerText}`
           )}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowUserMenu(!showUserMenu)}
-              style={{ width: 28, height: 28, borderRadius: '50%', background: '#7c3aed', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              style={{ width: 28, height: 28, borderRadius: '50%', background: '#BC6045', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </button>
             {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 90 }} />}
@@ -1384,9 +1385,9 @@ ${answerText}`
                   <p style={{ fontSize: 12, fontWeight: 600, color: text, margin: 0 }}>{profile?.full_name || user?.email}</p>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                     <span style={{ fontSize: 11, color: muted, display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <Zap size={10} style={{ color: '#7c3aed' }} /> {profile?.credits ?? 0} credits
+                      <Zap size={10} style={{ color: '#BC6045' }} /> {profile?.credits ?? 0} credits
                     </span>
-                    <span style={{ fontSize: 10, background: '#7c3aed20', color: '#7c3aed', padding: '1px 7px', borderRadius: 100, fontWeight: 600 }}>
+                    <span style={{ fontSize: 10, background: '#BC604520', color: '#BC6045', padding: '1px 7px', borderRadius: 100, fontWeight: 600 }}>
                       {(profile?.plan || 'FREE').toUpperCase()}
                     </span>
                   </div>
@@ -1424,8 +1425,8 @@ ${answerText}`
             <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {messages.length === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', padding: '0 12px' }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-                    <Sparkles size={18} style={{ color: '#7c3aed' }} />
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(188,96,69,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                    <Sparkles size={18} style={{ color: '#BC6045' }} />
                   </div>
                   <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 5, color: text }}>What would you like to build?</p>
                   <p style={{ fontSize: 12, color: muted, lineHeight: 1.5, marginBottom: 16 }}>
@@ -1435,7 +1436,7 @@ ${answerText}`
                     {['A todo app with categories', 'A landing page for my SaaS', 'A dashboard with charts'].map((s, i) => (
                       <button key={i} onClick={() => setPrompt(s)}
                         style={{ textAlign: 'left', fontSize: 12, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '7px 10px', color: muted, cursor: 'pointer' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed44'; e.currentTarget.style.color = text }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#BC604544'; e.currentTarget.style.color = text }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}>
                         {s}
                       </button>
@@ -1477,7 +1478,7 @@ ${answerText}`
                   </button>
                   <button onClick={handleSubmit}
                     disabled={loading || !prompt.trim() || stage === 'awaiting_approval' || stage === 'awaiting_clarification' || stage === 'building'}
-                    style={{ width: 34, height: 34, flexShrink: 0, borderRadius: '50%', background: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#6d5dfc' : (d ? '#222' : '#d8d3cc'), border: 'none', cursor: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: prompt.trim() ? '0 8px 16px rgba(109,93,252,0.22)' : 'none' }}>
+                    style={{ width: 34, height: 34, flexShrink: 0, borderRadius: '50%', background: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#BC6045' : (d ? '#222' : '#d8d3cc'), border: 'none', cursor: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: prompt.trim() ? '0 8px 16px rgba(188,96,69,0.22)' : 'none' }}>
                     {loading && (stage === 'planning' || stage === 'clarifying')
                       ? <Loader2 size={13} style={{ color: '#fff', animation: 'spin 0.8s linear infinite' }} />
                       : <Send size={13} style={{ color: prompt.trim() && !loading && !['awaiting_approval', 'awaiting_clarification', 'building'].includes(stage) ? '#fff' : muted }} />}
@@ -1503,12 +1504,12 @@ ${answerText}`
                 style={{
                   display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 999,
                   fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
-                  background: activeTab === tab.id ? 'rgba(124,58,237,0.1)' : 'transparent',
-                  color: activeTab === tab.id ? '#7c3aed' : muted
+                  background: activeTab === tab.id ? 'rgba(188,96,69,0.1)' : 'transparent',
+                  color: activeTab === tab.id ? '#BC6045' : muted
                 }}>
                 {tab.icon} {tab.label}
                 {tab.badge > 0 && (
-                  <span style={{ fontSize: 10, background: '#7c3aed', color: '#fff', borderRadius: 100, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{tab.badge}</span>
+                  <span style={{ fontSize: 10, background: '#BC6045', color: '#fff', borderRadius: 100, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{tab.badge}</span>
                 )}
               </button>
             ))}
@@ -1545,7 +1546,7 @@ ${answerText}`
                 }}>
                   {iframeStatus === 'loading' && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: d ? '#0d0d0d' : '#f0f0f0', zIndex: 1 }}>
-                      <Loader2 size={22} style={{ color: '#7c3aed', animation: 'spin 0.8s linear infinite', marginBottom: 8 }} />
+                      <Loader2 size={22} style={{ color: '#BC6045', animation: 'spin 0.8s linear infinite', marginBottom: 8 }} />
                       <p style={{ fontSize: 12, color: muted }}>Loading preview...</p>
                     </div>
                   )}
@@ -1554,7 +1555,7 @@ ${answerText}`
                       <AlertCircle size={22} style={{ color: '#ef4444' }} />
                       <p style={{ fontSize: 13, color: muted }}>Preview failed to load</p>
                       <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 12, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        style={{ fontSize: 12, color: '#BC6045', display: 'flex', alignItems: 'center', gap: 4 }}>
                         Open directly <ExternalLink size={11} />
                       </a>
                     </div>
@@ -1587,13 +1588,13 @@ ${answerText}`
                   <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#0d1117' : '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     <div style={{ height: 42, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderBottom: `1px solid ${d ? '#30363d' : '#d0d7de'}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: text, fontSize: 12, fontWeight: 600, minWidth: 0 }}>
-                        <FolderOpen size={13} style={{ color: '#7c3aed', flexShrink: 0 }} />
+                        <FolderOpen size={13} style={{ color: '#BC6045', flexShrink: 0 }} />
                         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Project files</span>
                       </div>
                       <button onClick={downloadProjectZip}
                         disabled={downloadingProject}
                         title="Download project ZIP"
-                        style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#161b22' : '#f6f8fa', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: downloadingProject ? 'default' : 'pointer', opacity: downloadingProject ? 0.6 : 1 }}>
+                        style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${d ? '#30363d' : '#d0d7de'}`, background: d ? '#161b22' : '#f6f8fa', color: '#BC6045', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: downloadingProject ? 'default' : 'pointer', opacity: downloadingProject ? 0.6 : 1 }}>
                         {downloadingProject ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Download size={12} />}
                       </button>
                     </div>
@@ -1610,8 +1611,8 @@ ${answerText}`
                               padding: '7px 8px',
                               borderRadius: 6,
                               border: 'none',
-                              background: active ? 'rgba(124,58,237,0.12)' : 'transparent',
-                              color: active ? '#7c3aed' : muted,
+                              background: active ? 'rgba(188,96,69,0.12)' : 'transparent',
+                              color: active ? '#BC6045' : muted,
                               cursor: 'pointer',
                               fontSize: 12,
                               textAlign: 'left',
@@ -1660,7 +1661,7 @@ ${answerText}`
                   ))}
                   {isBuilding && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: muted, fontSize: 11 }}>
-                      <Loader2 size={10} style={{ animation: 'spin 0.8s linear infinite', color: '#7c3aed' }} /> Working...
+                      <Loader2 size={10} style={{ animation: 'spin 0.8s linear infinite', color: '#BC6045' }} /> Working...
                     </div>
                   )}
                 </div>
@@ -1683,7 +1684,7 @@ ${answerText}`
           50% { transform: translateX(35%); opacity: 0.48; }
         }
         .streaming-heading {
-          background: linear-gradient(90deg, #7c3aed 0%, #a78bfa 28%, #22d3ee 48%, #a78bfa 68%, #7c3aed 100%);
+          background: linear-gradient(90deg, #BC6045 0%, #d18a74 34%, #9f4d38 68%, #BC6045 100%);
           background-size: 240% 100%;
           -webkit-background-clip: text;
           background-clip: text;
@@ -1694,7 +1695,7 @@ ${answerText}`
           position: absolute;
           inset: 0;
           pointer-events: none;
-          background: linear-gradient(90deg, transparent, rgba(124,58,237,0.16), transparent);
+          background: linear-gradient(90deg, transparent, rgba(188,96,69,0.16), transparent);
           animation: streamGlow 2.8s ease-in-out infinite;
         }
         * { box-sizing: border-box; margin: 0; padding: 0 }
