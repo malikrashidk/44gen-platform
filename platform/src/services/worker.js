@@ -100,17 +100,29 @@ function isRepairableBuildError(err) {
   return /vite|esbuild|transform failed|src\/App\.jsx|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
 }
 
-async function saveProjectFile(projectId, code) {
+// Save all generated files to project_files table
+async function saveProjectFiles(projectId, files) {
+  // Delete existing files for this project first
   await supabase.from('project_files')
     .delete()
     .eq('project_id', projectId)
-    .eq('file_path', 'src/App.jsx')
-  await supabase.from('project_files').insert({
+
+  // Insert all new files
+  const rows = files.map(file => ({
     project_id: projectId,
-    file_path: 'src/App.jsx',
-    content: code,
+    file_path: file.path,
+    content: file.content,
     updated_at: new Date().toISOString()
-  })
+  }))
+
+  await supabase.from('project_files').insert(rows)
+}
+
+// Get App.jsx content from files array (for chat display and repair)
+function getAppJsx(files) {
+  return files.find(f => f.path === 'src/App.jsx')?.content
+    || files[0]?.content
+    || ''
 }
 
 async function runJob(jobId) {
@@ -136,7 +148,15 @@ async function runJob(jobId) {
     if (!profile || profile.credits < 0.5) throw new Error('Insufficient credits')
 
     emit('start', { message: 'Starting code generation...' })
-    emit('code_start', { file: 'src/App.jsx', message: 'Writing src/App.jsx...' })
+
+    const fileList = job.plan.files || ['src/App.jsx']
+    const isMultiFile = fileList.length > 1
+    emit('code_start', {
+      file: isMultiFile ? `${fileList.length} files` : 'src/App.jsx',
+      message: isMultiFile
+        ? `Writing ${fileList.length} files: ${fileList.map(f => f.split('/').pop()).join(', ')}...`
+        : 'Writing src/App.jsx...'
+    })
 
     const generated = await generateCodeStream(
       job.plan,
@@ -145,18 +165,26 @@ async function runJob(jobId) {
       (thought) => emit('thought', { text: thought })
     )
 
-    emit('code_end', { message: 'Code generation complete' })
+    emit('code_end', {
+      message: `Code generation complete — ${generated.files.length} file(s) written`
+    })
 
-    let code = generated.code
+    let files = generated.files
     let tokens_used = generated.tokens_used
-    await saveProjectFile(job.project_id, code)
 
+    // Save all files to DB
+    await saveProjectFiles(job.project_id, files)
+
+    // Get App.jsx for chat display and repair
+    let appCode = getAppJsx(files)
+
+    // Build with repair loop
     let subdomain
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
       try {
         subdomain = await buildAndDeploy(
           job.project_id,
-          code,
+          files,
           (progress) => emit(progress.type, { message: progress.message })
         )
         break
@@ -166,37 +194,51 @@ async function runJob(jobId) {
         const repairAttempt = attempt + 1
         emit('repair_start', {
           attempt: repairAttempt,
-          message: `Fixing src/App.jsx after build error...`
+          message: `Fixing build error (attempt ${repairAttempt})...`
         })
         console.warn(`[Worker] Repairing generated code for job ${jobId}, attempt ${repairAttempt}: ${buildErr.message}`)
 
+        // Repair always targets App.jsx (entry point is most likely culprit)
         const repaired = await repairGeneratedCode({
           plan: job.plan,
-          code,
+          code: appCode,
           error: buildErr.message,
           attempt: repairAttempt
         })
-        code = repaired.code
+
+        appCode = repaired.code
         tokens_used += repaired.tokens_used || 0
-        await saveProjectFile(job.project_id, code)
+
+        // Update files array with repaired App.jsx
+        files = files.map(f =>
+          f.path === 'src/App.jsx' ? { ...f, content: appCode } : f
+        )
+        // If App.jsx wasn't in files for some reason, add it
+        if (!files.find(f => f.path === 'src/App.jsx')) {
+          files = [{ path: 'src/App.jsx', content: appCode }, ...files]
+        }
+
+        await saveProjectFiles(job.project_id, files)
         emit('repair_done', {
           attempt: repairAttempt,
-          message: `Updated src/App.jsx. Rebuilding...`
+          message: `Fixed. Rebuilding...`
         })
       }
     }
 
+    // Save App.jsx content to conversations for chat display
     await supabase.from('conversations').insert({
       project_id: job.project_id,
       role: 'assistant',
-      content: code,
+      content: appCode,
       type: 'code'
     })
 
     const credits_used = parseFloat((tokens_used / 10000).toFixed(2))
 
     emit('summarizing', { message: 'Generating summary...' })
-    const summary = await generateSummary(job.plan, ['src/App.jsx'])
+    const filesWritten = files.map(f => f.path)
+    const summary = await generateSummary(job.plan, filesWritten)
 
     await supabase.from('projects').update({
       name: job.plan.app_name || 'My App',
@@ -225,7 +267,7 @@ async function runJob(jobId) {
       credits_used,
       credits_after: updatedProfile?.credits ?? profile.credits - credits_used,
       tokens_used,
-      description: `Phase ${job.plan.current_phase}/${job.plan.total_phases}`
+      description: `Phase ${job.plan.current_phase}/${job.plan.total_phases} — ${filesWritten.length} file(s)`
     })
 
     const completionData = {
@@ -234,7 +276,8 @@ async function runJob(jobId) {
       total_phases: job.plan.total_phases,
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
       plan: job.plan,
-      summary
+      summary,
+      files_written: filesWritten
     }
 
     await supabase.from('conversations').insert({
