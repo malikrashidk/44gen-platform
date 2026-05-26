@@ -231,7 +231,11 @@ export default function Editor() {
     }
 
     setMessages(prev => {
-      const id = buildStreamMessageIdRef.current
+      let id = buildStreamMessageIdRef.current
+      if (!id || !prev.some(m => m.id === id)) {
+        id = [...prev].reverse().find(m => m.type === 'build_stream')?.id
+        if (id) buildStreamMessageIdRef.current = id
+      }
       const nextPatch = { ...patch }
       if (nextPatch.step) delete nextPatch.step
 
@@ -251,12 +255,13 @@ export default function Editor() {
       }
 
       return prev.map(m => {
+        if (m.type === 'build_stream' && m.id !== id) return null
         if (m.id !== id) return m
         const steps = patch.step
           ? [...(m.content.steps || []).filter(s => s.label !== patch.step.label), patch.step].slice(-5)
           : (m.content.steps || [])
         return { ...m, content: { ...m.content, ...nextPatch, steps } }
-      })
+      }).filter(Boolean)
     })
   }, [])
 
@@ -452,10 +457,17 @@ export default function Editor() {
         addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
           ...prev
-            .filter(m => m.type !== 'build_step' && m.type !== 'status' && m.type !== 'thought' && m.type !== 'code_stream' && m.type !== 'code_done')
-            .map(m => m.id === buildStreamMessageIdRef.current
-              ? { ...m, content: { ...m.content, heading: 'Done', subtext: `Live at ${event.subdomain}.44gen.com`, phase: 'done' } }
-              : m),
+            .filter(m => !['build_stream', 'build_step', 'status', 'thought', 'code_stream', 'code_done'].includes(m.type)),
+          {
+            id: Date.now() + Math.random(),
+            role: 'assistant',
+            type: 'build_stream',
+            content: {
+              heading: `Done · ${event.subdomain}.44gen.com`,
+              subtext: '',
+              phase: 'done'
+            }
+          },
           { id: Date.now(), role: 'assistant', content: event, type: 'complete' }
         ])
         buildStreamMessageIdRef.current = null
