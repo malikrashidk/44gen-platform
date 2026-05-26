@@ -75,6 +75,8 @@ export default function Editor() {
   const streamEventSeenRef = useRef(false)
   const streamWatchdogRef = useRef(null)
   const buildStartedRef = useRef(false) // prevent double-approve
+  const pollIntervalRef = useRef(null)
+  const processedEventCountRef = useRef(0)
 
   const d = darkMode
   const bg = d ? '#0f0f0f' : '#fbfaf8'
@@ -122,6 +124,7 @@ export default function Editor() {
   // Cleanup on unmount
   useEffect(() => () => {
     stopCodeFlush()
+    stopPolling()
     if (esRef.current) esRef.current.close()
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
     if (streamWatchdogRef.current) clearTimeout(streamWatchdogRef.current)
@@ -288,12 +291,44 @@ export default function Editor() {
 
   const loadBuildProgress = async () => {
     const { data: jobs } = await supabase
-      .from('build_jobs').select('progress')
+      .from('build_jobs').select('progress, status, subdomain, credits_used')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false }).limit(1)
 
-    const details = (jobs?.[0]?.progress || []).map(detailFromEvent).filter(Boolean)
+    const job = jobs?.[0]
+    const events = job?.progress || []
+
+    // Always update details log
+    const details = events.map(detailFromEvent).filter(Boolean)
     if (details.length) setDetailsLog(details)
+
+    // Feed any new events into handleStreamEvent so chat updates live
+    const newEvents = events.slice(processedEventCountRef.current)
+    if (newEvents.length > 0) {
+      processedEventCountRef.current = events.length
+      newEvents.forEach(event => {
+        try { handleStreamEventRef.current?.(event) } catch {}
+      })
+    }
+  }
+
+  const startPolling = () => {
+    if (pollIntervalRef.current) return
+    processedEventCountRef.current = 0
+    pollIntervalRef.current = setInterval(() => {
+      if (streamFinishedRef.current) {
+        stopPolling()
+        return
+      }
+      loadBuildProgress()
+    }, 2000)
+  }
+
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
   }
 
   const checkActiveBuildJob = async () => {
@@ -406,16 +441,10 @@ export default function Editor() {
 
     streamWatchdogRef.current = setTimeout(() => {
       if (!streamFinishedRef.current && stageRef.current === 'building' && !streamEventSeenRef.current) {
-        upsertBuildStream({
-          heading: 'Waiting for the first live build update...',
-          subtext: '',
-          phase: 'connecting',
-          step: { label: 'Waiting for live stream', tone: 'active' }
-        })
-        setDetailsLog(prev => [...prev, { icon: '⏱️', msg: 'Waiting for first build update...', color: '#f59e0b', ts: Date.now() }])
-        loadBuildProgress()
+        // SSE blocked by proxy/CDN — fall back to polling DB every 2s
+        startPolling()
       }
-    }, 8000)
+    }, 3000)
 
     es.onerror = () => {
       if (streamFinishedRef.current) {
@@ -570,6 +599,7 @@ export default function Editor() {
       case 'done':
       case 'complete':
         stopCodeFlush()
+        stopPolling()
         streamFinishedRef.current = true
         buildStartedRef.current = false
         setPreviewUrl('https://' + event.subdomain + '.44gen.com')
@@ -603,6 +633,7 @@ export default function Editor() {
 
       case 'error':
         stopCodeFlush()
+        stopPolling()
         buildStartedRef.current = false
         buildStreamMessageIdRef.current = null
         addMessage('assistant', event.message, 'error')
@@ -809,6 +840,8 @@ ${answerText}`
     setFullCode('')
     codeChunksRef.current = ''
     buildStreamMessageIdRef.current = null
+    processedEventCountRef.current = 0
+    stopPolling()
     upsertBuildStream({ heading: 'Creating build job...', subtext: '', phase: 'starting' })
 
     try {
