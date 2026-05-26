@@ -53,9 +53,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>
 )`
 
-export async function buildAndDeploy(projectId, code, onProgress) {
+// Accept either:
+//   files: Array<{ path: string, content: string }>  (multi-file, new)
+//   files: string                                     (single App.jsx, backward compat)
+export async function buildAndDeploy(projectId, files, onProgress) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
+
+  // Normalize to array
+  const fileList = Array.isArray(files)
+    ? files
+    : [{ path: 'src/App.jsx', content: files }]
 
   const emit = (type, message) => {
     if (onProgress) onProgress({ type, message })
@@ -65,16 +73,36 @@ export async function buildAndDeploy(projectId, code, onProgress) {
   await ensureBuildTemplate((message) => emit('installing', message))
   prepareProjectDir(projectDir, subdomain)
 
-  let safeCode = normalizeGeneratedCode(code)
-  if (!safeCode.includes('export default')) {
-    const match = safeCode.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
-    if (match) {
-      safeCode = safeCode + `\n\nexport default ${match[1]}`
+  // Write all generated files
+  for (const file of fileList) {
+    const absPath = path.join(projectDir, file.path)
+    const absDir = path.dirname(absPath)
+
+    // Ensure the directory exists (e.g. src/components/, src/pages/)
+    fs.mkdirSync(absDir, { recursive: true })
+
+    let content = file.content
+
+    // Normalize App.jsx specifically (strip fences, fix exports, etc.)
+    if (file.path === 'src/App.jsx') {
+      content = normalizeGeneratedCode(content)
+      if (!content.includes('export default')) {
+        const match = content.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
+        content = content + `\n\nexport default ${match ? match[1] : 'App'}`
+      }
     } else {
-      safeCode = safeCode + '\n\nexport default App'
+      // For component/page files: strip markdown fences if present
+      content = content
+        .replace(/^```(?:jsx|tsx|javascript|js)?\s*/i, '')
+        .replace(/\s*```\s*$/i, '')
+        .trim()
     }
+
+    fs.writeFileSync(absPath, content)
   }
-  fs.writeFileSync(path.join(projectDir, 'src', 'App.jsx'), safeCode)
+
+  const fileNames = fileList.map(f => f.path).join(', ')
+  console.log(`[Builder] Wrote ${fileList.length} file(s): ${fileNames}`)
 
   try {
     emit('building', 'Building with Vite...')
