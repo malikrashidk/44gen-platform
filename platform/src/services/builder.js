@@ -32,12 +32,26 @@ const VITE_CONFIG = `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 export default defineConfig({ plugins: [react()], base: '/', cacheDir: './.vite-cache' })`
 
-const INDEX_HTML = `<!DOCTYPE html>
+const DEFAULT_FAVICON = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23ff3cac'/><stop offset='50%25' stop-color='%23784ba0'/><stop offset='100%25' stop-color='%232b86c5'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><text x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' font-family='Arial,sans-serif' font-weight='900' font-size='26' fill='white'>44</text></svg>`
+
+function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null } = {}) {
+  let faviconTag = ''
+  if (faviconEmoji) {
+    // Emoji favicon via SVG data URI
+    faviconTag = `<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>${faviconEmoji}</text></svg>" />`
+  } else if (faviconUrl) {
+    faviconTag = `<link rel="icon" href="${faviconUrl}" />`
+  } else {
+    faviconTag = `<link rel="icon" href="${DEFAULT_FAVICON}" />`
+  }
+
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  ${faviconTag}
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>App</title>
+  <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
@@ -45,6 +59,9 @@ const INDEX_HTML = `<!DOCTYPE html>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>`
+}
+
+const INDEX_HTML = buildIndexHtml()
 
 const MAIN_JSX = `import React from 'react'
 import ReactDOM from 'react-dom/client'
@@ -56,7 +73,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // Accept either:
 //   files: Array<{ path: string, content: string }>  (multi-file, new)
 //   files: string                                     (single App.jsx, backward compat)
-export async function buildAndDeploy(projectId, files, onProgress) {
+export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
   const subdomain = `app-${projectId.slice(0, 8)}`
   const projectDir = path.join(USERS_DIR, subdomain)
 
@@ -72,6 +89,14 @@ export async function buildAndDeploy(projectId, files, onProgress) {
   emit('installing', 'Preparing build template...')
   await ensureBuildTemplate((message) => emit('installing', message))
   prepareProjectDir(projectDir, subdomain)
+
+  // Write custom index.html with app title and favicon
+  const customIndex = buildIndexHtml({
+    title: meta.appName || 'App',
+    faviconEmoji: meta.faviconEmoji || null,
+    faviconUrl: meta.faviconUrl || null,
+  })
+  fs.writeFileSync(path.join(projectDir, 'index.html'), customIndex)
 
   // Write all generated files
   for (const file of fileList) {
