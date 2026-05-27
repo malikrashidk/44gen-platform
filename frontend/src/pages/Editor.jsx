@@ -62,6 +62,14 @@ export default function Editor() {
   const [editColor, setEditColor] = useState('')
   const [editBgColor, setEditBgColor] = useState('')
   const [editFontSize, setEditFontSize] = useState('')
+  const [visualTab, setVisualTab] = useState('style') // 'style' | 'image'
+  const [pexelsQuery, setPexelsQuery] = useState('')
+  const [pexelsResults, setPexelsResults] = useState([])
+  const [pexelsLoading, setPexelsLoading] = useState(false)
+  const [pexelsError, setPexelsError] = useState('')
+  const [selectedPexelsPhoto, setSelectedPexelsPhoto] = useState(null)
+  const imageUploadRef = useRef(null)
+  const [imageUploading, setImageUploading] = useState(false)
   const imageInputRef = useRef(null)
   const [attachedImage, setAttachedImage] = useState(null) // { base64, mimeType, preview }
   const [attachedUrl, setAttachedUrl] = useState('')
@@ -830,6 +838,70 @@ export default function Editor() {
   const dismissVisualPanel = () => {
     setVisualPanel({ visible: false })
     setSelectedElement(null)
+  }
+
+  const searchPexels = async (query) => {
+    if (!query.trim()) return
+    setPexelsLoading(true)
+    setPexelsError('')
+    setPexelsResults([])
+    try {
+      const res = await fetch(`${API}/api/images/search?query=${encodeURIComponent(query)}&per_page=12&orientation=landscape`, {
+        headers: authHeaders()
+      })
+      const data = await res.json()
+      if (data.upgrade_required) {
+        setPexelsError('upgrade_required')
+        return
+      }
+      if (data.error) throw new Error(data.error)
+      setPexelsResults(data.photos || [])
+    } catch (err) {
+      setPexelsError(err.message || 'Search failed')
+    } finally {
+      setPexelsLoading(false)
+    }
+  }
+
+  const applyImageToElement = async (imageUrl, alt = '') => {
+    if (!selectedElement) return
+    const prompt = `Visual edit: Replace the image or background image in the ${selectedElement.tag} element (path: ${selectedElement.path.split('>').pop().trim()}) with this image URL: "${imageUrl}". If it is a div used as an image placeholder, convert it to an <img> tag with src="${imageUrl}" alt="${alt}" and appropriate object-fit styling. If it already has a src or backgroundImage, update it to "${imageUrl}".`
+    setVisualPanel({ visible: false })
+    setSelectedElement(null)
+    setVisualEditMode(false)
+    setSelectedPexelsPhoto(null)
+    setPexelsResults([])
+    setPexelsQuery('')
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: '__44gen_inspect_off__' }, '*')
+    } catch {}
+    await submitPromptText(prompt)
+  }
+
+  const handleVisualImageUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const base64 = ev.target.result.split(',')[1]
+        const res = await fetch(`${API}/api/images/upload`, {
+          method: 'POST',
+          headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64, mimeType: file.type, filename: file.name })
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        await applyImageToElement(data.url, file.name.replace(/\.[^.]+$/, ''))
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      console.error('Upload error:', err)
+    } finally {
+      setImageUploading(false)
+      e.target.value = ''
+    }
   }
 
   const handleImageAttach = (e) => {
@@ -1887,8 +1959,10 @@ ${answerText}`
 
                   {/* Visual edit panel */}
                   {visualPanel.visible && selectedElement && (
-                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: d ? '#1a1a1a' : '#fff', border: `1px solid ${border}`, borderRadius: 20, padding: '20px 20px 16px', width: 300, zIndex: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: d ? '#1a1a1a' : '#fff', border: `1px solid ${border}`, borderRadius: 20, padding: '20px 20px 16px', width: 340, zIndex: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.35)', maxHeight: '80vh', overflowY: 'auto' }}>
+
+                      {/* Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 800, color: text }}>Edit element</div>
                           <div style={{ fontSize: 11, color: muted, fontFamily: 'monospace', marginTop: 2 }}>{selectedElement.tag}</div>
@@ -1896,49 +1970,143 @@ ${answerText}`
                         <button onClick={dismissVisualPanel} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
                       </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {/* Text content */}
-                        {selectedElement.text && (
-                          <div>
-                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text content</label>
-                            <textarea
-                              value={editText}
-                              onChange={e => setEditText(e.target.value)}
-                              rows={2}
-                              style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                            />
-                          </div>
-                        )}
+                      {/* Tabs */}
+                      <div style={{ display: 'flex', gap: 4, background: d ? '#111' : '#f5f2ee', borderRadius: 10, padding: 4, marginBottom: 16 }}>
+                        {['style', 'image'].map(tab => (
+                          <button key={tab} onClick={() => setVisualTab(tab)} style={{ flex: 1, padding: '7px 0', borderRadius: 7, border: 'none', background: visualTab === tab ? (d ? '#2a2a2a' : '#fff') : 'transparent', color: visualTab === tab ? text : muted, fontSize: 12, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize', boxShadow: visualTab === tab ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+                            {tab === 'style' ? '🎨 Style' : '🖼️ Image'}
+                          </button>
+                        ))}
+                      </div>
 
-                        {/* Colors */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <div>
-                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text color</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
-                              <input type="color" value={editColor.startsWith('rgb') ? '#ffffff' : editColor} onChange={e => setEditColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
-                              <input value={editColor} onChange={e => setEditColor(e.target.value)} placeholder="color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
+                      {/* Style tab */}
+                      {visualTab === 'style' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {selectedElement.text && (
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text content</label>
+                              <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={2} style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                            </div>
+                          )}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text color</label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
+                                <input type="color" value={editColor.startsWith('rgb') ? '#ffffff' : (editColor || '#000000')} onChange={e => setEditColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                                <input value={editColor} onChange={e => setEditColor(e.target.value)} placeholder="color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Background</label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
+                                <input type="color" value={editBgColor.startsWith('rgb') ? '#ffffff' : (editBgColor || '#ffffff')} onChange={e => setEditBgColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                                <input value={editBgColor} onChange={e => setEditBgColor(e.target.value)} placeholder="bg color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
+                              </div>
                             </div>
                           </div>
                           <div>
-                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Background</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
-                              <input type="color" value={editBgColor.startsWith('rgb') ? '#ffffff' : editBgColor} onChange={e => setEditBgColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
-                              <input value={editBgColor} onChange={e => setEditBgColor(e.target.value)} placeholder="bg color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
-                            </div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Font size</label>
+                            <input value={editFontSize} onChange={e => setEditFontSize(e.target.value)} placeholder="e.g. 24px or text-2xl" style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', boxSizing: 'border-box' }} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <button onClick={dismissVisualPanel} style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={applyVisualEdit} style={{ flex: 2, padding: '10px 0', borderRadius: 10, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(188,96,69,0.3)' }}>Apply with AI ✦</button>
                           </div>
                         </div>
+                      )}
 
-                        {/* Font size */}
-                        <div>
-                          <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Font size</label>
-                          <input value={editFontSize} onChange={e => setEditFontSize(e.target.value)} placeholder="e.g. 24px or text-2xl" style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', boxSizing: 'border-box' }} />
+                      {/* Image tab */}
+                      {visualTab === 'image' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                          {/* Upload own image — free for all */}
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Upload your image</label>
+                            <input ref={imageUploadRef} type="file" accept="image/*" onChange={handleVisualImageUpload} style={{ display: 'none' }} />
+                            <button onClick={() => imageUploadRef.current?.click()} disabled={imageUploading} style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: `2px dashed ${border}`, background: 'transparent', color: text, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.borderColor = '#BC6045'} onMouseLeave={e => e.currentTarget.style.borderColor = border}>
+                              {imageUploading ? '⏳ Uploading...' : '📁 Upload image (PNG, JPG, WebP)'}
+                            </button>
+                            <div style={{ fontSize: 11, color: muted, textAlign: 'center', marginTop: 5 }}>Free for all plans · Max 5MB</div>
+                          </div>
+
+                          {/* Divider */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ flex: 1, height: 1, background: border }} />
+                            <span style={{ fontSize: 11, color: muted, fontWeight: 600 }}>or search stock photos</span>
+                            <div style={{ flex: 1, height: 1, background: border }} />
+                          </div>
+
+                          {/* Pexels search — paid only */}
+                          {pexelsError === 'upgrade_required' ? (
+                            <div style={{ background: d ? '#1a1208' : '#fffbf0', border: `1px solid #f59e0b`, borderRadius: 12, padding: '14px 16px', textAlign: 'center' }}>
+                              <div style={{ fontSize: 20, marginBottom: 8 }}>✨</div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: text, marginBottom: 6 }}>Pro feature</div>
+                              <div style={{ fontSize: 12, color: muted, marginBottom: 12, lineHeight: 1.6 }}>Stock photo search is available on Pro and Business plans. Upgrade to access millions of high-quality photos.</div>
+                              <button onClick={() => window.open('/pricing', '_blank')} style={{ padding: '9px 20px', borderRadius: 10, border: 'none', background: '#BC6045', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>View plans →</button>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <input
+                                  value={pexelsQuery}
+                                  onChange={e => setPexelsQuery(e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && searchPexels(pexelsQuery)}
+                                  placeholder="Search millions of photos..."
+                                  style={{ flex: 1, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: text, outline: 'none' }}
+                                />
+                                <button onClick={() => searchPexels(pexelsQuery)} disabled={pexelsLoading} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: '#BC6045', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                                  {pexelsLoading ? '...' : '🔍'}
+                                </button>
+                              </div>
+
+                              {/* Quick search tags */}
+                              {!pexelsResults.length && !pexelsLoading && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {['team working', 'modern office', 'technology', 'nature', 'city', 'abstract'].map(tag => (
+                                    <button key={tag} onClick={() => { setPexelsQuery(tag); searchPexels(tag) }} style={{ padding: '4px 10px', borderRadius: 100, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }} onMouseEnter={e => { e.currentTarget.style.background = '#BC6045'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#BC6045' }} onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = muted; e.currentTarget.style.borderColor = border }}>
+                                      {tag}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {pexelsError && pexelsError !== 'upgrade_required' && (
+                                <div style={{ fontSize: 12, color: '#ef4444', textAlign: 'center' }}>{pexelsError}</div>
+                              )}
+
+                              {/* Photo grid */}
+                              {pexelsResults.length > 0 && (
+                                <div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+                                    {pexelsResults.map(photo => (
+                                      <div key={photo.id} onClick={() => setSelectedPexelsPhoto(photo)} style={{ aspectRatio: '16/10', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', border: `2px solid ${selectedPexelsPhoto?.id === photo.id ? '#BC6045' : 'transparent'}`, transition: 'all 0.15s', position: 'relative' }}>
+                                        <img src={photo.urls.small} alt={photo.alt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        {selectedPexelsPhoto?.id === photo.id && (
+                                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(188,96,69,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#BC6045', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>✓</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {selectedPexelsPhoto && (
+                                    <div style={{ background: d ? '#111' : '#f5f2ee', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+                                      <div style={{ fontSize: 11, color: muted, marginBottom: 4 }}>Selected: <strong style={{ color: text }}>{selectedPexelsPhoto.alt || 'Photo'}</strong></div>
+                                      <div style={{ fontSize: 10, color: muted }}>By {selectedPexelsPhoto.photographer} · Pexels</div>
+                                    </div>
+                                  )}
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button onClick={dismissVisualPanel} style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={() => selectedPexelsPhoto && applyImageToElement(selectedPexelsPhoto.urls.large, selectedPexelsPhoto.alt)} disabled={!selectedPexelsPhoto} style={{ flex: 2, padding: '10px 0', borderRadius: 10, border: 'none', background: selectedPexelsPhoto ? '#BC6045' : (d ? '#222' : '#e0ddd8'), color: selectedPexelsPhoto ? '#fff' : muted, fontSize: 13, fontWeight: 700, cursor: selectedPexelsPhoto ? 'pointer' : 'default', boxShadow: selectedPexelsPhoto ? '0 4px 12px rgba(188,96,69,0.3)' : 'none' }}>
+                                      Use this photo ✦
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                        <button onClick={dismissVisualPanel} style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                        <button onClick={applyVisualEdit} style={{ flex: 2, padding: '10px 0', borderRadius: 10, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(188,96,69,0.3)' }}>Apply with AI ✦</button>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>
