@@ -96,6 +96,14 @@ export function parseMultiFileOutput(text) {
     : [{ path: 'src/App.jsx', content: text.trim() }])
 }
 
+function inferRepairTargetPath(error, files = []) {
+  const message = String(error || '')
+  const match = message.match(/src\/[A-Za-z0-9_./-]+\.(?:js|jsx|ts|tsx|css|json)/)
+  const matchedPath = match?.[0]
+  if (matchedPath && files.some(file => file.path === matchedPath)) return matchedPath
+  return files.find(file => file.path === 'src/App.jsx')?.path || files[0]?.path || 'src/App.jsx'
+}
+
 export async function generatePlan(prompt) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
@@ -422,19 +430,30 @@ Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketi
   })
 }
 
-export async function repairGeneratedCode({ plan, code, error, attempt = 1 }) {
+export async function repairGeneratedCode({ plan, code, files = null, error, attempt = 1 }) {
   return withModelFallback(async (modelName) => {
+    const safeFiles = files ? sanitizeGeneratedFiles(files) : null
+    const isMultiFile = safeFiles && safeFiles.length > 1
+    const repairTargetPath = inferRepairTargetPath(error, safeFiles || [])
+    const repairTargetFile = safeFiles?.find(file => file.path === repairTargetPath)
+    const currentFilesContext = isMultiFile
+      ? formatExistingFilesContext(repairTargetFile ? [repairTargetFile] : safeFiles)
+      : code
+
     const model = genAI.getGenerativeModel({
       model: modelName,
       systemInstruction: `You repair broken generated React code for a Vite app.
 
-Return ONLY the full corrected src/App.jsx module. No markdown, no backticks, no explanations.
+${isMultiFile
+  ? `Return ONLY corrected files using the ===FILE:path=== format. No markdown, no backticks, no explanations.
+You may return only files that changed; unchanged files will be preserved.`
+  : 'Return ONLY the full corrected src/App.jsx module. No markdown, no backticks, no explanations.'}
 
 Rules:
 - Keep the user's requested product, design intent, and all working features
 - Fix the build error directly — change only what's needed to fix it
-- Return a single React module for src/App.jsx
-- First characters must be imports
+- ${isMultiFile ? 'Preserve the existing multi-file project structure and keep imports consistent between files' : 'Return a single React module for src/App.jsx'}
+- ${isMultiFile ? 'Every returned file must use a safe src/... path and include its full corrected content' : 'First characters must be imports'}
 - Use package imports only, never URL imports
 - Do not include HTML documents, script tags, ReactDOM render calls, or CDN scripts
 - Prefer Tailwind classes or inline style objects over <style> tags
@@ -449,14 +468,23 @@ Repair attempt: ${attempt}
 Vite/build error:
 ${String(error).slice(0, 6000)}
 
-Current src/App.jsx:
-${code}`
+Likely file to repair: ${repairTargetPath}
+
+${isMultiFile ? 'Current project files:' : 'Current src/App.jsx:'}
+${isMultiFile ? `${safeFiles.map(file => file.path).join('\n')}\n\nCurrent file to repair:` : ''}
+${currentFilesContext}`
 
     const result = await model.generateContent(prompt)
     const response = await result.response
     const usage = response.usageMetadata
+    const text = response.text()
+    const hasFileDelimiters = /===FILE:[^=\n]+===/.test(text)
+    const repairedFiles = isMultiFile
+      ? (hasFileDelimiters ? parseMultiFileOutput(text) : [{ path: repairTargetPath, content: text }])
+      : [{ path: 'src/App.jsx', content: text }]
     return {
-      code: response.text(),
+      code: repairedFiles.find(file => file.path === 'src/App.jsx')?.content || text,
+      files: repairedFiles,
       tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
     }
   })

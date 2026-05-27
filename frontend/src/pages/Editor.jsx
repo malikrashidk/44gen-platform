@@ -575,10 +575,10 @@ export default function Editor() {
 
       case 'repair_start':
         upsertBuildStream({
-          heading: event.message || 'Fixing src/App.jsx after build error...',
+          heading: event.message || 'Fixing generated files after build error...',
           subtext: '',
           phase: 'code',
-          file: 'src/App.jsx',
+          file: event.file || 'generated files',
           actionVerb: 'Fixing',
           step: { label: event.message || 'Repairing generated code', tone: 'active' }
         })
@@ -587,7 +587,7 @@ export default function Editor() {
 
       case 'repair_done':
         upsertBuildStream({
-          heading: event.message || 'Updated src/App.jsx. Rebuilding...',
+          heading: event.message || 'Updated generated files. Rebuilding...',
           subtext: '',
           phase: 'building',
           step: { label: event.message || 'Repair complete', tone: 'done' }

@@ -124,7 +124,7 @@ const MAX_REPAIR_ATTEMPTS = 2
 function isRepairableBuildError(err) {
   const message = String(err?.message || err || '')
   if (/npm ERR!|ENOSPC|EACCES|ETIMEDOUT|ECONNRESET/i.test(message)) return false
-  return /vite|esbuild|transform failed|src\/App\.jsx|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
+  return /vite|esbuild|transform failed|src\/[^\s:)]+|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
 }
 
 // Save all generated files to project_files table
@@ -243,33 +243,36 @@ async function runJob(jobId) {
         const repairAttempt = attempt + 1
         emit('repair_start', {
           attempt: repairAttempt,
+          file: files.length > 1 ? `${files.length} files` : 'src/App.jsx',
           message: `Fixing build error (attempt ${repairAttempt})...`
         })
         console.warn(`[Worker] Repairing generated code for job ${jobId}, attempt ${repairAttempt}: ${buildErr.message}`)
 
-        // Repair always targets App.jsx (entry point is most likely culprit)
         const repaired = await repairGeneratedCode({
           plan: job.plan,
           code: appCode,
+          files,
           error: buildErr.message,
           attempt: repairAttempt
         })
 
-        appCode = repaired.code
         tokens_used += repaired.tokens_used || 0
 
-        // Update files array with repaired App.jsx
-        files = files.map(f =>
-          f.path === 'src/App.jsx' ? { ...f, content: appCode } : f
-        )
+        // Repair may return one changed file or several; preserve unchanged files.
+        files = mergeWithExistingFiles(repaired.files || [{ path: 'src/App.jsx', content: repaired.code }], files)
+        appCode = getAppJsx(files)
+
         // If App.jsx wasn't in files for some reason, add it
         if (!files.find(f => f.path === 'src/App.jsx')) {
           files = [{ path: 'src/App.jsx', content: appCode }, ...files]
         }
 
         await saveProjectFiles(job.project_id, files)
+        const repairedPaths = (repaired.files || []).map(file => file.path)
         emit('repair_done', {
           attempt: repairAttempt,
+          files: repairedPaths,
+          file: repairedPaths.length > 1 ? `${repairedPaths.length} files` : repairedPaths[0] || 'generated files',
           message: `Fixed. Rebuilding...`
         })
       }
