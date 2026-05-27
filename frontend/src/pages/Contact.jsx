@@ -28,7 +28,7 @@ export default function Contact() {
       }}>
         <Link to="/" style={{ textDecoration: 'none' }}>
           <div style={{ fontWeight: 800, fontSize: 22, color: '#0f0f14', letterSpacing: '-0.5px' }}>
-            44<span style={{ color: '#ff3cac' }}>gen</span>
+            44<span style={{ color: '#ff3cac' }}>Gen</span>
           </div>
         </Link>
         <div style={{ display: 'flex', gap: 24 }}>
@@ -151,14 +151,14 @@ export default function Contact() {
       <footer style={{ background: '#06060a', borderTop: '1px solid rgba(255,255,255,0.06)', padding: '40px 24px', marginTop: 80 }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <Link to="/" style={{ textDecoration: 'none' }}>
-            <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>44<span style={{ color: '#ff3cac' }}>gen</span></div>
+            <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>44<span style={{ color: '#ff3cac' }}>Gen</span></div>
           </Link>
           <div style={{ display: 'flex', gap: 24 }}>
             {[{ label: 'Home', to: '/' }, { label: 'Pricing', to: '/pricing' }, { label: 'Log in', to: '/auth' }].map(l => (
               <Link key={l.label} to={l.to} style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, textDecoration: 'none' }}>{l.label}</Link>
             ))}
           </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)' }}>© 2026 44gen</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)' }}>© 2026 44Gen</div>
         </div>
       </footer>
     </div>
