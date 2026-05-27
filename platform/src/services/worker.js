@@ -188,7 +188,8 @@ async function runJob(jobId) {
       job.plan,
       job.plan.current_phase || 1,
       (chunk) => emit('code_chunk', { text: chunk }),
-      (thought) => emit('thought', { text: thought })
+      (thought) => emit('thought', { text: thought }),
+      job.plan.vision_image || null
     )
 
     emit('code_end', {
