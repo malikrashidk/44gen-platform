@@ -40,7 +40,7 @@ function FloatingOrb({ style }) {
   return <div style={{ position: 'absolute', borderRadius: '50%', filter: 'blur(80px)', pointerEvents: 'none', ...style }} />
 }
 
-function GlassCard({ children, style }) {
+function GlassCard({ children, style, ...props }) {
   return (
     <div style={{
       background: 'rgba(255,255,255,0.04)',
@@ -48,7 +48,7 @@ function GlassCard({ children, style }) {
       backdropFilter: 'blur(20px)',
       borderRadius: 24,
       ...style
-    }}>{children}</div>
+    }} {...props}>{children}</div>
   )
 }
 
