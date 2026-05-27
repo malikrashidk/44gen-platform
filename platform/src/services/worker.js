@@ -211,7 +211,12 @@ async function runJob(jobId) {
         subdomain = await buildAndDeploy(
           job.project_id,
           files,
-          (progress) => emit(progress.type, { message: progress.message })
+          (progress) => emit(progress.type, { message: progress.message }),
+          {
+            appName: job.plan.app_name || 'App',
+            faviconEmoji: job.plan.favicon_emoji || null,
+            faviconUrl: job.plan.favicon_url || null,
+          }
         )
         await purgeCloudflareCache(subdomain)
         break
