@@ -23,7 +23,7 @@ const REVIEWS = [
 
 const FEATURES = [
   { icon: '⚡', title: 'Builds in minutes', desc: 'From prompt to live deployed app in under 2 minutes. No setup, no config, no waiting.' },
-  { icon: '🧠', title: 'Gemini 2.5 Flash', desc: 'Powered by Google\'s fastest reasoning model. Complex apps, thought through intelligently.' },
+  { icon: '🧠', title: 'Intelligent planning', desc: 'Our AI breaks your idea into structured steps before writing a single line of code. No guessing.' },
   { icon: '🌐', title: 'Instant live URL', desc: 'Every app gets its own subdomain automatically. Share a link the moment it\'s done.' },
   { icon: '🏗️', title: 'Multi-file architecture', desc: 'Real component structure — Navbar, Hero, Features — each in its own clean file.' },
   { icon: '💬', title: 'Refine with chat', desc: 'Ask for changes in plain English. Dark mode, new sections, layout tweaks — just describe it.' },
@@ -141,7 +141,7 @@ export default function Landing() {
       }}>
         <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 32, height: 32, borderRadius: 10, background: G, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#fff' }}>44</div>
-          <span style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>gen</span>
+          <span style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
         </Link>
 
         <div style={{ display: 'flex', gap: 36, alignItems: 'center' }}>
@@ -197,7 +197,7 @@ export default function Landing() {
         {/* Badge */}
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 18px', borderRadius: 100, background: 'rgba(255,60,172,0.1)', border: '1px solid rgba(255,60,172,0.25)', marginBottom: 36, fontSize: 13, color: '#ff9ad5', fontWeight: 600, animation: 'fadeInDown 0.8s ease both' }}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff3cac', display: 'inline-block', animation: 'pulse 2s infinite' }} />
-          Powered by Gemini 2.5 Flash · Free to start
+          AI-powered app builder · Free to start
         </div>
 
         <h1 style={{ fontSize: 'clamp(48px, 8vw, 90px)', fontWeight: 900, lineHeight: 1.0, letterSpacing: '-3px', margin: '0 0 28px', maxWidth: 900, animation: 'fadeInUp 0.9s ease 0.1s both' }}>
@@ -336,6 +336,189 @@ export default function Landing() {
         </div>
       </div>
 
+
+      {/* ── Built with 44Gen ── */}
+      <div style={{ padding: '100px 24px', position: 'relative', overflow: 'hidden' }} ref={registerSection('built')}>
+        <FloatingOrb style={{ width: 450, height: 450, top: '20%', right: '-5%', background: 'rgba(120,75,160,0.12)', animation: 'floatB 11s ease-in-out infinite' }} />
+        <div style={{ maxWidth: 1100, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+          <div style={{ textAlign: 'center', marginBottom: 64 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 16, ...GTEXT }}>Showcase</div>
+            <h2 style={{ fontSize: 'clamp(32px, 4vw, 52px)', fontWeight: 800, color: '#fff', letterSpacing: '-1.5px', margin: '0 0 16px', ...fadeUp('built') }}>
+              Real apps built with 44Gen
+            </h2>
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 17, maxWidth: 440, margin: '0 auto', ...fadeUp('built', 0.1) }}>
+              From landing pages to dashboards — shipped in minutes.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+            {[
+              {
+                title: 'FlowMetrics — Analytics Dashboard',
+                tag: 'Dashboard',
+                desc: 'Real-time analytics with charts, KPI cards, and user activity feed.',
+                gradient: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+                accent: '#818cf8',
+                ui: [
+                  { type: 'bar', label: 'Revenue Overview' },
+                  { type: 'stats', values: ['$48,293', '+12.4%', '1,847'] },
+                ]
+              },
+              {
+                title: 'NovaSend — Email SaaS Landing',
+                tag: 'Landing Page',
+                desc: 'High-converting marketing page with pricing, testimonials, and CTA.',
+                gradient: 'linear-gradient(135deg, #0d1117 0%, #1a0533 50%, #0d1117 100%)',
+                accent: '#e879f9',
+                ui: [
+                  { type: 'hero', label: 'Send smarter emails' },
+                  { type: 'pills', values: ['Free', 'Pro', 'Enterprise'] },
+                ]
+              },
+              {
+                title: 'TrackHabit — Habit Tracker',
+                tag: 'Productivity App',
+                desc: 'Daily habit tracker with streak counts, progress rings, and journal.',
+                gradient: 'linear-gradient(135deg, #0a1628 0%, #0d2d44 50%, #0a1628 100%)',
+                accent: '#34d399',
+                ui: [
+                  { type: 'rings', values: ['85%', '60%', '95%'] },
+                  { type: 'streak', label: '🔥 14 day streak' },
+                ]
+              },
+              {
+                title: 'ShopVault — E-commerce Store',
+                tag: 'E-commerce',
+                desc: 'Product catalog with filters, cart, and checkout flow.',
+                gradient: 'linear-gradient(135deg, #1a0a00 0%, #2d1500 50%, #1a0a00 100%)',
+                accent: '#fb923c',
+                ui: [
+                  { type: 'products', values: ['$129', '$89', '$249'] },
+                  { type: 'cart', label: '3 items · $467' },
+                ]
+              },
+              {
+                title: 'Portfol.io — Developer Portfolio',
+                tag: 'Portfolio',
+                desc: 'Minimal dark portfolio with projects, skills, and contact form.',
+                gradient: 'linear-gradient(135deg, #020817 0%, #0c1a2e 50%, #020817 100%)',
+                accent: '#38bdf8',
+                ui: [
+                  { type: 'hero', label: 'Hi, I'm Alex Rivera' },
+                  { type: 'pills', values: ['React', 'Node.js', 'AWS'] },
+                ]
+              },
+              {
+                title: 'BudgetFlow — Finance Tracker',
+                tag: 'Tool',
+                desc: 'Expense tracker with category breakdowns, monthly charts, and budgets.',
+                gradient: 'linear-gradient(135deg, #001a0f 0%, #002d1a 50%, #001a0f 100%)',
+                accent: '#4ade80',
+                ui: [
+                  { type: 'bar', label: 'Monthly Spending' },
+                  { type: 'stats', values: ['$3,200', '-8.2%', '$800'] },
+                ]
+              },
+            ].map((project, i) => (
+              <GlassCard key={project.title} style={{ overflow: 'hidden', transition: 'all 0.35s', cursor: 'default', ...fadeUp('built', i * 0.07) }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-6px)'; e.currentTarget.style.boxShadow = `0 24px 60px rgba(0,0,0,0.5)` }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
+              >
+                {/* App preview mockup */}
+                <div style={{ height: 180, background: project.gradient, position: 'relative', overflow: 'hidden', padding: '16px' }}>
+                  {/* Browser chrome */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 8, padding: '8px 12px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ff5f56', display: 'inline-block' }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ffbd2e', display: 'inline-block' }} />
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#27c93f', display: 'inline-block' }} />
+                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 14, marginLeft: 8 }} />
+                  </div>
+                  {/* UI preview */}
+                  {project.ui.map((el, j) => (
+                    <div key={j} style={{ marginBottom: 8 }}>
+                      {el.type === 'bar' && (
+                        <div>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 5 }}>{el.label}</div>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 36 }}>
+                            {[60, 80, 45, 90, 70, 55, 85].map((h, k) => (
+                              <div key={k} style={{ flex: 1, height: `${h}%`, background: project.accent, opacity: 0.7 + k * 0.04, borderRadius: '2px 2px 0 0' }} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {el.type === 'stats' && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {el.values.map((v, k) => (
+                            <div key={k} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 6, padding: '6px 10px', flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: k === 1 ? project.accent : '#fff' }}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {el.type === 'hero' && (
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 }}>{el.label}</div>
+                          <div style={{ width: '60%', height: 6, background: project.accent, borderRadius: 3, opacity: 0.8, marginBottom: 6 }} />
+                          <div style={{ width: '40%', height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2 }} />
+                        </div>
+                      )}
+                      {el.type === 'pills' && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {el.values.map((v, k) => (
+                            <span key={k} style={{ fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 100, background: k === 1 ? project.accent : 'rgba(255,255,255,0.1)', color: k === 1 ? '#000' : 'rgba(255,255,255,0.7)' }}>{v}</span>
+                          ))}
+                        </div>
+                      )}
+                      {el.type === 'rings' && (
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                          {el.values.map((v, k) => (
+                            <div key={k} style={{ width: 40, height: 40, borderRadius: '50%', border: `3px solid ${project.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <span style={{ fontSize: 9, fontWeight: 800, color: '#fff' }}>{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {el.type === 'streak' && (
+                        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: '#fff', fontWeight: 700 }}>{el.label}</span>
+                        </div>
+                      )}
+                      {el.type === 'products' && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          {el.values.map((v, k) => (
+                            <div key={k} style={{ flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px', textAlign: 'center' }}>
+                              <div style={{ width: '100%', height: 28, background: 'rgba(255,255,255,0.08)', borderRadius: 4, marginBottom: 5 }} />
+                              <div style={{ fontSize: 11, fontWeight: 700, color: project.accent }}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {el.type === 'cart' && (
+                        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>{el.label}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: project.accent }}>Checkout →</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {/* Glow overlay */}
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, background: `linear-gradient(transparent, rgba(0,0,0,0.3))` }} />
+                </div>
+
+                {/* Card info */}
+                <div style={{ padding: '20px 22px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 100, background: `${project.accent}18`, color: project.accent, letterSpacing: '0.06em' }}>{project.tag}</span>
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 6 }}>{project.title}</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>{project.desc}</div>
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── Pricing preview ── */}
       <div style={{ padding: '100px 24px', position: 'relative' }} ref={registerSection('pricing')}>
         <FloatingOrb style={{ width: 400, height: 400, top: '10%', left: '-5%', background: 'rgba(255,60,172,0.1)', animation: 'floatC 11s ease-in-out infinite' }} />
@@ -407,7 +590,7 @@ export default function Landing() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 10, background: G, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#fff' }}>44</div>
-                <span style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>gen</span>
+                <span style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
               </div>
               <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)', lineHeight: 1.7, maxWidth: 260, margin: '0 0 20px' }}>From idea to live app in minutes. Build React apps with AI, deploy instantly.</p>
               <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)' }}>© 2026 44gen. All rights reserved.</div>
@@ -433,8 +616,8 @@ export default function Landing() {
             {/* Legal */}
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 20 }}>Legal</div>
-              {['Privacy Policy', 'Terms of Service', 'Cookie Policy'].map(l => (
-                <div key={l} style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, marginBottom: 12, cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.35)'}>{l}</div>
+              {[{ label: 'Privacy Policy', to: '/privacy' }, { label: 'Terms of Service', to: '/terms' }].map(l => (
+                <Link key={l.label} to={l.to} style={{ display: 'block', color: 'rgba(255,255,255,0.35)', fontSize: 14, textDecoration: 'none', marginBottom: 12, transition: 'color 0.2s' }} onMouseEnter={e => e.target.style.color = '#fff'} onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.35)'}>{l.label}</Link>
               ))}
             </div>
           </div>
