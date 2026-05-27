@@ -28,7 +28,7 @@ export default function Contact() {
       }}>
         <Link to="/" style={{ textDecoration: 'none' }}>
           <div style={{ fontWeight: 800, fontSize: 22, color: '#0f0f14', letterSpacing: '-0.5px' }}>
-            44<span style={{ color: '#7c6af7' }}>gen</span>
+            44<span style={{ color: '#ff3cac' }}>gen</span>
           </div>
         </Link>
         <div style={{ display: 'flex', gap: 24 }}>
@@ -42,7 +42,7 @@ export default function Contact() {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 64 }}>
-          <div style={{ fontSize: 13, color: '#7c6af7', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Contact</div>
+          <div style={{ fontSize: 13, color: '#ff3cac', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Contact</div>
           <h1 style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 800, color: '#0f0f14', letterSpacing: '-2px', margin: '0 0 16px' }}>
             Get in touch
           </h1>
@@ -56,20 +56,20 @@ export default function Contact() {
           {/* Left — contact info */}
           <div>
             <div style={{ background: '#fff', borderRadius: 20, padding: '32px', border: '1px solid #ebe9e4', marginBottom: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ede9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c6af7', marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,60,172,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3cac', marginBottom: 16 }}>
                 <Mail size={20} />
               </div>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#0f0f14', marginBottom: 6 }}>Email us</div>
               <div style={{ fontSize: 14, color: '#6b6b7b', lineHeight: 1.6 }}>
                 For support, billing, or partnerships — we usually reply within 24 hours.
               </div>
-              <a href="mailto:hello@44gen.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, color: '#7c6af7', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+              <a href="mailto:hello@44gen.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, color: '#ff3cac', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
                 hello@44gen.com <ArrowRight size={14} />
               </a>
             </div>
 
             <div style={{ background: '#fff', borderRadius: 20, padding: '32px', border: '1px solid #ebe9e4' }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ede9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c6af7', marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,60,172,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3cac', marginBottom: 16 }}>
                 <MessageCircle size={20} />
               </div>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#0f0f14', marginBottom: 6 }}>Common topics</div>
@@ -110,7 +110,7 @@ export default function Contact() {
                         background: '#fafafa', outline: 'none', boxSizing: 'border-box',
                         transition: 'border-color 0.2s'
                       }}
-                      onFocus={e => e.target.style.borderColor = '#7c6af7'}
+                      onFocus={e => e.target.style.borderColor = '#ff3cac'}
                       onBlur={e => e.target.style.borderColor = '#e0dde8'}
                     />
                   </div>
@@ -128,13 +128,13 @@ export default function Contact() {
                       background: '#fafafa', outline: 'none', resize: 'vertical',
                       fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.2s'
                     }}
-                    onFocus={e => e.target.style.borderColor = '#7c6af7'}
+                    onFocus={e => e.target.style.borderColor = '#ff3cac'}
                     onBlur={e => e.target.style.borderColor = '#e0dde8'}
                   />
                 </div>
                 <button type="submit" disabled={loading} style={{
                   width: '100%', padding: '14px 0', borderRadius: 12,
-                  background: loading ? '#b8b2f7' : '#7c6af7', color: '#fff',
+                  background: loading ? '#b8b2f7' : '#ff3cac', color: '#fff',
                   border: 'none', fontSize: 15, fontWeight: 700, cursor: loading ? 'wait' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   transition: 'all 0.2s'
@@ -151,7 +151,7 @@ export default function Contact() {
       <footer style={{ background: '#06060a', borderTop: '1px solid rgba(255,255,255,0.06)', padding: '40px 24px', marginTop: 80 }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <Link to="/" style={{ textDecoration: 'none' }}>
-            <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>44<span style={{ color: '#7c6af7' }}>gen</span></div>
+            <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>44<span style={{ color: '#ff3cac' }}>gen</span></div>
           </Link>
           <div style={{ display: 'flex', gap: 24 }}>
             {[{ label: 'Home', to: '/' }, { label: 'Pricing', to: '/pricing' }, { label: 'Log in', to: '/auth' }].map(l => (
