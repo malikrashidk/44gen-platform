@@ -49,6 +49,25 @@ function extractJson(text) {
   throw new Error('No valid JSON found in response')
 }
 
+const MAX_EXISTING_FILE_CHARS = 12000
+const MAX_EXISTING_CONTEXT_CHARS = 70000
+
+function formatExistingFilesContext(files = []) {
+  let used = 0
+  const blocks = []
+
+  for (const file of files) {
+    const remaining = MAX_EXISTING_CONTEXT_CHARS - used
+    if (remaining <= 0) break
+
+    const content = String(file.content || '').slice(0, Math.min(MAX_EXISTING_FILE_CHARS, remaining))
+    used += content.length
+    blocks.push(`===FILE:${file.path}===\n${content}`)
+  }
+
+  return blocks.join('\n')
+}
+
 // Parse multi-file output format: ===FILE:path=== ... ===FILE:path=== ...
 // Falls back to single App.jsx if no delimiters found
 export function parseMultiFileOutput(text) {
@@ -335,6 +354,7 @@ export async function generateCodeStream(plan, phase, onChunk, onThought, vision
     const category = plan.app_category || 'general'
     const colorTheme = plan.color_theme || 'light'
     const isMultiFile = plan.files && plan.files.length > 1
+    const existingContext = formatExistingFilesContext(plan.existing_files || [])
 
     const userPrompt = `App category: ${category}
 Color theme: ${colorTheme}
@@ -343,6 +363,7 @@ Build: ${plan.understanding}
 Steps:
 ${steps}
 ${isMultiFile ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files.join('\n')}` : '\nOutput format: single file (no ===FILE:=== delimiters)'}
+${existingContext ? `\nExisting project context:\n${existingContext}\n\nRefinement rules:\n- Preserve all existing files and features unless the user explicitly asks to remove them.\n- For multi-file projects, return changed files with ===FILE:path=== delimiters.\n- You may omit unchanged files; the platform will keep their current content.\n- Keep imports consistent with the final file structure.` : ''}
 
 Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketing site' : category === 'dashboard' ? 'production admin dashboard' : category === 'tool' ? 'polished web tool' : category === 'portfolio' ? 'professional portfolio' : 'production app'}. The first screen must be immediately impressive — professional layout, real content, polished interactions. Not a demo or scaffold.`
 

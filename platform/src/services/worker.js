@@ -151,6 +151,17 @@ function getAppJsx(files) {
     || ''
 }
 
+function mergeWithExistingFiles(generatedFiles = [], existingFiles = []) {
+  if (!existingFiles.length) return generatedFiles
+
+  const merged = new Map(existingFiles.map(file => [file.path, file]))
+  for (const file of generatedFiles) {
+    if (!file?.path || !file.content) continue
+    merged.set(file.path, file)
+  }
+  return [...merged.values()].sort((a, b) => a.path.localeCompare(b.path))
+}
+
 async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
 
@@ -196,7 +207,7 @@ async function runJob(jobId) {
       message: `Code generation complete — ${generated.files.length} file(s) written`
     })
 
-    let files = generated.files
+    let files = mergeWithExistingFiles(generated.files, job.plan.existing_files || [])
     let tokens_used = generated.tokens_used
 
     // Save all files to DB

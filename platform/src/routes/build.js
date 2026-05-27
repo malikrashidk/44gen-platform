@@ -201,17 +201,21 @@ router.post('/direct', requireAuth, async (req, res) => {
       .single()
     if (!project) return res.status(404).json({ error: 'Project not found' })
 
-    // Fetch current App.jsx for context
-    const { data: appFile } = await supabase
+    // Fetch all generated source files for context. Direct refinements must
+    // preserve multi-file projects instead of collapsing them into App.jsx.
+    const { data: existingRows } = await supabase
       .from('project_files')
-      .select('content')
+      .select('file_path, content')
       .eq('project_id', projectId)
-      .eq('file_path', 'src/App.jsx')
-      .maybeSingle()
+      .order('file_path', { ascending: true })
 
-    const currentCode = appFile?.content
-      ? `\n\nCurrent src/App.jsx (preserve all working functionality):\n\`\`\`jsx\n${appFile.content.slice(0, 45000)}\n\`\`\``
-      : ''
+    const existingFiles = (existingRows || []).map(file => ({
+      path: file.file_path,
+      content: file.content
+    }))
+    const existingFilePaths = existingFiles.length
+      ? existingFiles.map(file => file.path)
+      : ['src/App.jsx']
 
     // Detect and expand design intent into specific instructions
     const designInstructions = buildDesignInstructions(prompt)
@@ -236,9 +240,9 @@ router.post('/direct', requireAuth, async (req, res) => {
       `Update the existing app "${project.name || 'Untitled App'}" based on this request: ${prompt}.` +
       designInstructions +
       referenceNote +
-      currentCode +
-      `\n\nReturn a complete updated React component. ` +
-      `Preserve all existing functionality and logic unless the request changes it. ` +
+      `\n\nReturn the complete updated project files using the ===FILE:path=== format when more than one file exists. ` +
+      `Preserve every existing file, import, component, state flow, and feature unless the request changes it. ` +
+      `If a file does not need changes, you may omit it; the builder will keep the existing version. ` +
       `Apply every design instruction precisely and comprehensively — ` +
       `if dark mode is requested, EVERY element must be dark with no exceptions.`
 
@@ -252,17 +256,18 @@ router.post('/direct', requireAuth, async (req, res) => {
       total_phases: 1,
       steps: [
         `Apply user request: "${prompt}"`,
-        'Preserve all existing logic and functionality',
+        'Preserve all existing files, imports, logic, and functionality',
         'Apply all design changes comprehensively to every element',
-        'Return the complete updated src/App.jsx'
+        'Return updated files in the existing project structure'
       ],
-      files: ['src/App.jsx'],
+      files: existingFilePaths,
       questions: [],
       out_of_scope: [],
       estimated_credits: 2.5,
       phases: null,
       hidden: true,
       vision_image: visionImage || null,
+      existing_files: existingFiles,
     }
 
     // Favicon-only request: update index.html without full rebuild
