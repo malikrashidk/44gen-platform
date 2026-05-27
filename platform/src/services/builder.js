@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { resolveProjectFilePath, sanitizeGeneratedFiles } from './fileSafety.js'
 
 const USERS_DIR = '/var/www/44gen/users'
 const NPM_CACHE_DIR = '/var/www/44gen/.npm-cache'
@@ -153,21 +154,21 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
 </script>
 `
 
-  return \`<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  \${faviconTag}
+  ${faviconTag}
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>\${title}</title>
+  <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
   <div id="root"></div>
-  \${visualBridge}
+  ${visualBridge}
   <script type="module" src="/src/main.jsx"></script>
 </body>
-</html>\`
+</html>`
 }
 
 const INDEX_HTML = buildIndexHtml()
@@ -187,9 +188,9 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
   const projectDir = path.join(USERS_DIR, subdomain)
 
   // Normalize to array
-  const fileList = Array.isArray(files)
+  const fileList = sanitizeGeneratedFiles(Array.isArray(files)
     ? files
-    : [{ path: 'src/App.jsx', content: files }]
+    : [{ path: 'src/App.jsx', content: files }])
 
   const emit = (type, message) => {
     if (onProgress) onProgress({ type, message })
@@ -209,8 +210,8 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
 
   // Write all generated files
   for (const file of fileList) {
-    const absPath = path.join(projectDir, file.path)
-    const absDir = path.dirname(absPath)
+    const { safePath, absolutePath } = resolveProjectFilePath(projectDir, file.path)
+    const absDir = path.dirname(absolutePath)
 
     // Ensure the directory exists (e.g. src/components/, src/pages/)
     fs.mkdirSync(absDir, { recursive: true })
@@ -218,7 +219,7 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
     let content = file.content
 
     // Normalize App.jsx specifically (strip fences, fix exports, etc.)
-    if (file.path === 'src/App.jsx') {
+    if (safePath === 'src/App.jsx') {
       content = normalizeGeneratedCode(content)
       if (!content.includes('export default')) {
         const match = content.match(/function\s+([A-Z][A-Za-z0-9]*)\s*\(/)
@@ -232,7 +233,7 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
         .trim()
     }
 
-    fs.writeFileSync(absPath, content)
+    fs.writeFileSync(absolutePath, content)
   }
 
   const fileNames = fileList.map(f => f.path).join(', ')

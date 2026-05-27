@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { sanitizeGeneratedFiles } from './fileSafety.js'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
@@ -90,9 +91,9 @@ export function parseMultiFileOutput(text) {
     }
   }
 
-  return files.length > 0
+  return sanitizeGeneratedFiles(files.length > 0
     ? files
-    : [{ path: 'src/App.jsx', content: text.trim() }]
+    : [{ path: 'src/App.jsx', content: text.trim() }])
 }
 
 export async function generatePlan(prompt) {

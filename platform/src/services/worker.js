@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemini.js'
 import { buildAndDeploy } from './builder.js'
+import { sanitizeGeneratedFiles } from './fileSafety.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -128,13 +129,15 @@ function isRepairableBuildError(err) {
 
 // Save all generated files to project_files table
 async function saveProjectFiles(projectId, files) {
+  const safeFiles = sanitizeGeneratedFiles(files)
+
   // Delete existing files for this project first
   await supabase.from('project_files')
     .delete()
     .eq('project_id', projectId)
 
   // Insert all new files
-  const rows = files.map(file => ({
+  const rows = safeFiles.map(file => ({
     project_id: projectId,
     file_path: file.path,
     content: file.content,
@@ -152,10 +155,12 @@ function getAppJsx(files) {
 }
 
 function mergeWithExistingFiles(generatedFiles = [], existingFiles = []) {
-  if (!existingFiles.length) return generatedFiles
+  const safeGeneratedFiles = sanitizeGeneratedFiles(generatedFiles)
+  const safeExistingFiles = sanitizeGeneratedFiles(existingFiles)
+  if (!safeExistingFiles.length) return safeGeneratedFiles
 
-  const merged = new Map(existingFiles.map(file => [file.path, file]))
-  for (const file of generatedFiles) {
+  const merged = new Map(safeExistingFiles.map(file => [file.path, file]))
+  for (const file of safeGeneratedFiles) {
     if (!file?.path || !file.content) continue
     merged.set(file.path, file)
   }
