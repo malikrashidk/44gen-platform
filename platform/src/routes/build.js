@@ -31,6 +31,30 @@ async function createBuildJob({ projectId, userId, plan }) {
   return job
 }
 
+// Parse favicon change requests
+function parseFaviconRequest(prompt) {
+  const emojiRegex = /\p{Emoji_Presentation}/u
+  const emojiMatch = prompt.match(new RegExp('favicon.*?(' + emojiRegex.source + ')', 'u'))
+    || prompt.match(new RegExp('(' + emojiRegex.source + ').*?(?:as|for)?\\s*favicon', 'u'))
+  if (emojiMatch) return { faviconEmoji: emojiMatch[1], faviconUrl: null }
+
+  const urlMatch = prompt.match(/favicon.*?(https?:\/\/\S+)/i)
+  if (urlMatch) return { faviconEmoji: null, faviconUrl: urlMatch[1] }
+
+  if (/reset favicon|remove favicon|default favicon/i.test(prompt)) {
+    return { faviconEmoji: null, faviconUrl: null, reset: true }
+  }
+
+  return null
+}
+
+function isFaviconOnlyRequest(prompt) {
+  const p = prompt.trim().toLowerCase()
+  return p.startsWith('change favicon') || p.startsWith('update favicon') ||
+    p.startsWith('set favicon') || p.startsWith('use') && p.includes('favicon') ||
+    (p.includes('favicon') && p.split(' ').length < 8)
+}
+
 // Detect design intent from a refinement prompt and expand it into
 // specific, actionable instructions the model can act on precisely.
 function buildDesignInstructions(prompt) {
@@ -200,6 +224,40 @@ router.post('/direct', requireAuth, async (req, res) => {
       estimated_credits: 2.5,
       phases: null,
       hidden: true
+    }
+
+    // Favicon-only request: update index.html without full rebuild
+    const faviconData = parseFaviconRequest(prompt)
+    if (faviconData && isFaviconOnlyRequest(prompt)) {
+      try {
+        const { buildAndDeploy } = await import('../services/builder.js')
+        const { data: existingFiles } = await supabase
+          .from('project_files').select('file_path, content').eq('project_id', projectId)
+
+        if (!existingFiles?.length) {
+          return res.status(400).json({ error: 'Build your app first, then change the favicon.' })
+        }
+
+        const files = existingFiles.map(f => ({ path: f.file_path, content: f.content }))
+        await buildAndDeploy(projectId, files, () => {}, {
+          appName: project.name || 'App',
+          faviconEmoji: faviconData.reset ? null : (faviconData.faviconEmoji || null),
+          faviconUrl: faviconData.reset ? null : (faviconData.faviconUrl || null),
+        })
+
+        const msg = faviconData.reset
+          ? 'Favicon reset to the default 44Gen icon.'
+          : `Favicon updated to ${faviconData.faviconEmoji || faviconData.faviconUrl}! Refresh the preview to see it.`
+
+        await supabase.from('conversations').insert({
+          project_id: projectId, role: 'assistant', content: msg, type: 'text'
+        })
+
+        return res.json({ favicon_updated: true, message: msg })
+      } catch (err) {
+        console.error('[Favicon] Error:', err.message)
+        return res.status(500).json({ error: err.message })
+      }
     }
 
     const job = await createBuildJob({ projectId, userId, plan })
