@@ -4,6 +4,27 @@ import { processJob, subscribeToJob, getJobHistory } from '../services/worker.js
 import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
+
+// Take screenshot of a URL using a free screenshot service
+async function captureScreenshot(url) {
+  try {
+    // Use screenshotone.com free tier or similar
+    // Fallback: use microlink API which is free
+    const apiUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url`
+    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) })
+    const data = await res.json()
+    if (data?.data?.screenshot?.url) {
+      // Download the screenshot and convert to base64
+      const imgRes = await fetch(data.data.screenshot.url, { signal: AbortSignal.timeout(10000) })
+      const arrayBuffer = await imgRes.arrayBuffer()
+      const base64 = Buffer.from(arrayBuffer).toString('base64')
+      return { base64, mimeType: 'image/jpeg' }
+    }
+  } catch (err) {
+    console.warn('[Screenshot] Failed to capture:', err.message)
+  }
+  return null
+}
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY
@@ -165,7 +186,7 @@ router.post('/', requireAuth, async (req, res) => {
 
 // POST /api/build/direct — build immediately without a plan approval step
 router.post('/direct', requireAuth, async (req, res) => {
-  const { prompt, projectId } = req.body
+  const { prompt, projectId, referenceImage, referenceUrl } = req.body
   const userId = req.user.id
 
   if (!prompt || !projectId)
@@ -195,9 +216,26 @@ router.post('/direct', requireAuth, async (req, res) => {
     // Detect and expand design intent into specific instructions
     const designInstructions = buildDesignInstructions(prompt)
 
+    // Capture screenshot if URL reference provided
+    let visionImage = referenceImage || null
+    if (!visionImage && referenceUrl) {
+      const shot = await captureScreenshot(referenceUrl)
+      if (shot) {
+        visionImage = shot
+        console.log(`[Build] Captured screenshot for reference URL: ${referenceUrl}`)
+      }
+    }
+
+    const referenceNote = visionImage
+      ? `\n\nA reference design image has been attached. Carefully analyze it and adopt its visual style, color palette, layout structure, typography, spacing, and component patterns. Replicate the design language faithfully while building the requested functionality.`
+      : referenceUrl && !visionImage
+      ? `\n\nReference URL provided: ${referenceUrl}. Use this design as inspiration for the visual style and layout.`
+      : ''
+
     const understanding =
       `Update the existing app "${project.name || 'Untitled App'}" based on this request: ${prompt}.` +
       designInstructions +
+      referenceNote +
       currentCode +
       `\n\nReturn a complete updated React component. ` +
       `Preserve all existing functionality and logic unless the request changes it. ` +
@@ -208,7 +246,7 @@ router.post('/direct', requireAuth, async (req, res) => {
       understanding,
       is_complex: false,
       app_name: project.name || 'Updated App',
-      app_category: 'app',   // keeps single-file output for refinements
+      app_category: 'app',
       color_theme: /dark|night/i.test(prompt) ? 'dark' : 'light',
       current_phase: 1,
       total_phases: 1,
@@ -218,12 +256,13 @@ router.post('/direct', requireAuth, async (req, res) => {
         'Apply all design changes comprehensively to every element',
         'Return the complete updated src/App.jsx'
       ],
-      files: ['src/App.jsx'],  // refinements always single-file
+      files: ['src/App.jsx'],
       questions: [],
       out_of_scope: [],
       estimated_credits: 2.5,
       phases: null,
-      hidden: true
+      hidden: true,
+      vision_image: visionImage || null,
     }
 
     // Favicon-only request: update index.html without full rebuild
