@@ -1,15 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CheckCircle2, Code, Copy, Download, FileCode, FolderOpen, Loader2, RefreshCw
 } from 'lucide-react'
-import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-
-self.MonacoEnvironment = self.MonacoEnvironment || {
-  getWorker() {
-    return new editorWorker()
-  }
-}
 
 function languageForPath(filePath = '') {
   const ext = filePath.split('.').pop()?.toLowerCase()
@@ -49,36 +41,73 @@ export default function CodePanel({
   const editorHostRef = useRef(null)
   const editorRef = useRef(null)
   const modelRef = useRef(null)
+  const monacoRef = useRef(null)
+  const darkModeRef = useRef(d)
+  const [editorLoading, setEditorLoading] = useState(false)
+  const [editorError, setEditorError] = useState('')
+
+  useEffect(() => {
+    darkModeRef.current = d
+  }, [d])
 
   useEffect(() => {
     if (!editorHostRef.current || editorRef.current) return
 
-    editorRef.current = monaco.editor.create(editorHostRef.current, {
-      automaticLayout: true,
-      fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-      fontSize: 12,
-      lineHeight: 19,
-      minimap: { enabled: false },
-      readOnly: true,
-      scrollBeyondLastLine: false,
-      smoothScrolling: true,
-      wordWrap: 'on'
+    let cancelled = false
+    setEditorLoading(true)
+    setEditorError('')
+
+    Promise.all([
+      import('monaco-editor'),
+      import('monaco-editor/esm/vs/editor/editor.worker?worker')
+    ]).then(([monacoModule, workerModule]) => {
+      if (cancelled || !editorHostRef.current) return
+
+      const monaco = monacoModule
+      const EditorWorker = workerModule.default
+      self.MonacoEnvironment = self.MonacoEnvironment || {
+        getWorker() {
+          return new EditorWorker()
+        }
+      }
+
+      monacoRef.current = monaco
+      editorRef.current = monaco.editor.create(editorHostRef.current, {
+        automaticLayout: true,
+        fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontSize: 12,
+        lineHeight: 19,
+        minimap: { enabled: false },
+        readOnly: true,
+        scrollBeyondLastLine: false,
+        smoothScrolling: true,
+        wordWrap: 'on'
+      })
+      monaco.editor.setTheme(darkModeRef.current ? 'vs-dark' : 'vs')
+      setEditorLoading(false)
+    }).catch((err) => {
+      if (cancelled) return
+      setEditorError(err?.message || 'Code editor failed to load')
+      setEditorLoading(false)
     })
 
     return () => {
+      cancelled = true
       modelRef.current?.dispose()
       editorRef.current?.dispose()
       modelRef.current = null
       editorRef.current = null
+      monacoRef.current = null
     }
   }, [hasCodeFiles])
 
   useEffect(() => {
-    monaco.editor.setTheme(d ? 'vs-dark' : 'vs')
+    monacoRef.current?.editor.setTheme(d ? 'vs-dark' : 'vs')
   }, [d])
 
   useEffect(() => {
-    if (!editorRef.current) return
+    const monaco = monacoRef.current
+    if (!editorRef.current || !monaco) return
 
     const uriPath = selectedFile?.path || 'src/App.jsx'
     const previousModel = modelRef.current
@@ -90,7 +119,7 @@ export default function CodePanel({
     )
     modelRef.current = model
     editorRef.current.setModel(model)
-  }, [selectedFile?.path, selectedFile?.content])
+  }, [selectedFile?.path, selectedFile?.content, editorLoading])
 
   const copySelectedFile = () => {
     if (!selectedFile?.content) return
@@ -163,7 +192,15 @@ export default function CodePanel({
                 {copiedFile ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div ref={editorHostRef} style={{ flex: 1, minHeight: 0 }} />
+            <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+              {(editorLoading || editorError) && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: editorError ? '#ef4444' : muted, fontSize: 12, background: d ? '#0d1117' : '#f6f8fa' }}>
+                  {editorLoading && <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite', color: '#BC6045' }} />}
+                  {editorError || 'Loading editor...'}
+                </div>
+              )}
+              <div ref={editorHostRef} style={{ width: '100%', height: '100%' }} />
+            </div>
           </div>
         </>
       ) : (
