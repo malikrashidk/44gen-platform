@@ -321,7 +321,7 @@ Multi-file rules:
 - The platform provides index.html and main.jsx already — do not generate those
 - Return ONLY the file content (with ===FILE:=== delimiters if multi-file). No markdown, no backticks, no explanations.`
 
-export async function generateCodeStream(plan, phase, onChunk, onThought) {
+export async function generateCodeStream(plan, phase, onChunk, onThought, visionImage = null) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
       model: modelName,
@@ -346,7 +346,23 @@ ${isMultiFile ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files
 
 Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketing site' : category === 'dashboard' ? 'production admin dashboard' : category === 'tool' ? 'polished web tool' : category === 'portfolio' ? 'professional portfolio' : 'production app'}. The first screen must be immediately impressive — professional layout, real content, polished interactions. Not a demo or scaffold.`
 
-    const stream = await model.generateContentStream(userPrompt)
+    // Build content parts — text + optional vision image
+    let contentParts
+    if (visionImage?.base64 && visionImage?.mimeType) {
+      contentParts = [
+        {
+          inlineData: {
+            mimeType: visionImage.mimeType,
+            data: visionImage.base64
+          }
+        },
+        { text: userPrompt }
+      ]
+    } else {
+      contentParts = userPrompt
+    }
+
+    const stream = await model.generateContentStream(contentParts)
 
     let fullText = ''
 
