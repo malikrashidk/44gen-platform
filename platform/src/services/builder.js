@@ -37,7 +37,6 @@ const DEFAULT_FAVICON = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/s
 function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null } = {}) {
   let faviconTag = ''
   if (faviconEmoji) {
-    // Emoji favicon via SVG data URI
     faviconTag = `<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>${faviconEmoji}</text></svg>" />`
   } else if (faviconUrl) {
     faviconTag = `<link rel="icon" href="${faviconUrl}" />`
@@ -45,20 +44,130 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
     faviconTag = `<link rel="icon" href="${DEFAULT_FAVICON}" />`
   }
 
-  return `<!DOCTYPE html>
+  // Visual editor bridge — injected into every built app
+  // Activated via postMessage from the 44Gen editor
+  const visualBridge = `
+<script>
+(function() {
+  var active = false;
+  var hoveredEl = null;
+  var hoverBox = null;
+
+  function getPath(el) {
+    var path = [];
+    while (el && el !== document.body) {
+      var idx = Array.from(el.parentNode?.children || []).indexOf(el) + 1;
+      var tag = el.tagName.toLowerCase();
+      var cls = el.className && typeof el.className === 'string'
+        ? el.className.trim().split(/\s+/).slice(0,3).join('.').replace(/[^a-zA-Z0-9._-]/g,'')
+        : '';
+      path.unshift(tag + (cls ? '.' + cls : '') + ':nth-child(' + idx + ')');
+      el = el.parentNode;
+    }
+    return path.join(' > ');
+  }
+
+  function getStyles(el) {
+    var cs = window.getComputedStyle(el);
+    return {
+      color: cs.color,
+      backgroundColor: cs.backgroundColor,
+      fontSize: cs.fontSize,
+      fontWeight: cs.fontWeight,
+      padding: cs.padding,
+      margin: cs.margin,
+      borderRadius: cs.borderRadius,
+      textContent: (el.innerText || '').slice(0, 200)
+    };
+  }
+
+  function createHoverBox() {
+    var box = document.createElement('div');
+    box.id = '__44gen_hover__';
+    box.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:2px solid #BC6045;background:rgba(188,96,69,0.08);border-radius:4px;transition:all 0.1s ease;box-sizing:border-box;';
+    var label = document.createElement('div');
+    label.id = '__44gen_label__';
+    label.style.cssText = 'position:absolute;top:-22px;left:0;background:#BC6045;color:#fff;font-size:11px;font-family:monospace;padding:2px 7px;border-radius:4px 4px 0 0;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;';
+    box.appendChild(label);
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function updateHoverBox(el) {
+    if (!hoverBox) hoverBox = createHoverBox();
+    var r = el.getBoundingClientRect();
+    hoverBox.style.display = 'block';
+    hoverBox.style.top = r.top + 'px';
+    hoverBox.style.left = r.left + 'px';
+    hoverBox.style.width = r.width + 'px';
+    hoverBox.style.height = r.height + 'px';
+    var label = document.getElementById('__44gen_label__');
+    if (label) label.textContent = el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/)[0] : '');
+  }
+
+  function hideHoverBox() {
+    if (hoverBox) hoverBox.style.display = 'none';
+  }
+
+  function onMouseMove(e) {
+    if (!active) return;
+    var el = e.target;
+    if (el === hoverBox || el.closest('#__44gen_hover__')) return;
+    hoveredEl = el;
+    updateHoverBox(el);
+  }
+
+  function onClick(e) {
+    if (!active) return;
+    var el = e.target;
+    if (el === hoverBox || el.closest('#__44gen_hover__')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var styles = getStyles(el);
+    window.parent.postMessage({
+      type: '__44gen_element_selected__',
+      tag: el.tagName.toLowerCase(),
+      text: (el.innerText || '').slice(0, 300),
+      path: getPath(el),
+      styles: styles,
+      rect: { top: el.getBoundingClientRect().top, left: el.getBoundingClientRect().left }
+    }, '*');
+  }
+
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === '__44gen_inspect_on__') {
+      active = true;
+      document.body.style.cursor = 'crosshair';
+      document.addEventListener('mousemove', onMouseMove, true);
+      document.addEventListener('click', onClick, true);
+    }
+    if (e.data && e.data.type === '__44gen_inspect_off__') {
+      active = false;
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('click', onClick, true);
+      hideHoverBox();
+    }
+  });
+})();
+</script>
+`
+
+  return \`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  ${faviconTag}
+  \${faviconTag}
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title}</title>
+  <title>\${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
   <div id="root"></div>
+  \${visualBridge}
   <script type="module" src="/src/main.jsx"></script>
 </body>
-</html>`
+</html>\`
 }
 
 const INDEX_HTML = buildIndexHtml()
