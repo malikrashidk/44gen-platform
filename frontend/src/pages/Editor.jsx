@@ -54,6 +54,14 @@ export default function Editor() {
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
+  const iframeRef = useRef(null)
+  const [visualEditMode, setVisualEditMode] = useState(false)
+  const [selectedElement, setSelectedElement] = useState(null) // { tag, text, path, styles }
+  const [visualPanel, setVisualPanel] = useState({ x: 0, y: 0, visible: false })
+  const [editText, setEditText] = useState('')
+  const [editColor, setEditColor] = useState('')
+  const [editBgColor, setEditBgColor] = useState('')
+  const [editFontSize, setEditFontSize] = useState('')
   const imageInputRef = useRef(null)
   const [attachedImage, setAttachedImage] = useState(null) // { base64, mimeType, preview }
   const [attachedUrl, setAttachedUrl] = useState('')
@@ -756,6 +764,72 @@ export default function Editor() {
       setStage('idle')
     }
     setLoading(false)
+  }
+
+  // Visual editor: listen for element selection from iframe
+  useEffect(() => {
+    const handleMessage = (e) => {
+      if (e.data?.type === '__44gen_element_selected__') {
+        const el = e.data
+        setSelectedElement(el)
+        setEditText(el.text || '')
+        setEditColor(el.styles?.color || '')
+        setEditBgColor(el.styles?.backgroundColor || '')
+        setEditFontSize(el.styles?.fontSize || '')
+        setVisualPanel({ visible: true })
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  const toggleVisualEdit = () => {
+    if (!previewUrl) return
+    const iframe = iframeRef.current
+    if (!iframe) return
+    const next = !visualEditMode
+    setVisualEditMode(next)
+    setSelectedElement(null)
+    setVisualPanel({ visible: false })
+    try {
+      iframe.contentWindow.postMessage(
+        { type: next ? '__44gen_inspect_on__' : '__44gen_inspect_off__' },
+        '*'
+      )
+    } catch {}
+  }
+
+  const applyVisualEdit = async () => {
+    if (!selectedElement) return
+    const changes = []
+    const orig = selectedElement
+    if (editText && editText !== orig.text) {
+      changes.push(`Change the text "${orig.text.slice(0,60)}" to "${editText}"`)
+    }
+    if (editColor && editColor !== orig.styles?.color) {
+      changes.push(`Change the text color of the ${orig.tag} element to ${editColor}`)
+    }
+    if (editBgColor && editBgColor !== orig.styles?.backgroundColor) {
+      changes.push(`Change the background color of the ${orig.tag} element to ${editBgColor}`)
+    }
+    if (editFontSize && editFontSize !== orig.styles?.fontSize) {
+      changes.push(`Change the font size of "${orig.text.slice(0,40)}" to ${editFontSize}`)
+    }
+    if (!changes.length) return
+
+    const prompt = `Visual edit: ${changes.join('. ')}. Target element: ${orig.tag}${orig.path ? ' (' + orig.path.split('>').pop().trim() + ')' : ''}.`
+    setVisualPanel({ visible: false })
+    setSelectedElement(null)
+    setVisualEditMode(false)
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: '__44gen_inspect_off__' }, '*')
+    } catch {}
+    await submitPromptText(prompt)
+  }
+
+  const dismissVisualPanel = () => {
+    setVisualPanel({ visible: false })
+    setSelectedElement(null)
   }
 
   const handleImageAttach = (e) => {
@@ -1659,8 +1733,12 @@ ${answerText}`
                       <button onClick={() => setAttachedUrl('')} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, display: 'flex', fontSize: 14, lineHeight: 1 }}>×</button>
                     </div>
                   )}
-                  <button disabled title="Visual edits coming soon" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, borderRadius: 999, border: `1px solid ${border}`, background: surface, color: muted, padding: '0 12px', fontSize: 12, fontWeight: 800, cursor: 'default', opacity: 0.72 }}>
-                    <Sparkles size={13} /> Visual edits
+                  <button
+                    onClick={toggleVisualEdit}
+                    disabled={!previewUrl || loading || stage === 'building'}
+                    title={previewUrl ? (visualEditMode ? 'Exit visual edit mode' : 'Click elements to edit them visually') : 'Build your app first'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, borderRadius: 999, border: `1px solid ${visualEditMode ? '#BC6045' : border}`, background: visualEditMode ? 'rgba(188,96,69,0.1)' : surface, color: visualEditMode ? '#BC6045' : (!previewUrl || loading ? muted : text), padding: '0 12px', fontSize: 12, fontWeight: 800, cursor: previewUrl && !loading && stage !== 'building' ? 'pointer' : 'default', opacity: !previewUrl || loading ? 0.5 : 1, transition: 'all 0.2s' }}>
+                    <Sparkles size={13} /> {visualEditMode ? 'Exit visual' : 'Visual edits'}
                   </button>
                   <button onClick={() => setPromptMode(promptMode === 'plan' ? 'build' : 'plan')}
                     disabled={loading || stage === 'building' || stage === 'awaiting_approval' || stage === 'awaiting_clarification'}
@@ -1784,12 +1862,85 @@ ${answerText}`
                   )}
                   <iframe
                     key={previewKey}
+                    ref={iframeRef}
                     src={previewUrl ? `${previewUrl}?v=${previewKey}` : previewUrl}
-                    style={{ width: '100%', height: '100%', border: 'none', opacity: iframeStatus === 'loaded' ? 1 : 0 }}
+                    style={{ width: '100%', height: '100%', border: 'none', opacity: iframeStatus === 'loaded' ? 1 : 0, cursor: visualEditMode ? 'crosshair' : 'default' }}
                     title="Preview"
-                    onLoad={() => setIframeStatus('loaded')}
+                    onLoad={() => {
+                      setIframeStatus('loaded')
+                      // Re-enable inspect if visual edit mode was active
+                      if (visualEditMode) {
+                        setTimeout(() => {
+                          try { iframeRef.current?.contentWindow?.postMessage({ type: '__44gen_inspect_on__' }, '*') } catch {}
+                        }, 300)
+                      }
+                    }}
                     onError={() => setIframeStatus('error')}
                   />
+
+                  {/* Visual edit mode overlay indicator */}
+                  {visualEditMode && iframeStatus === 'loaded' && (
+                    <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: '#BC6045', color: '#fff', fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 100, pointerEvents: 'none', zIndex: 10, boxShadow: '0 4px 12px rgba(188,96,69,0.4)' }}>
+                      Click any element to edit
+                    </div>
+                  )}
+
+                  {/* Visual edit panel */}
+                  {visualPanel.visible && selectedElement && (
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: d ? '#1a1a1a' : '#fff', border: `1px solid ${border}`, borderRadius: 20, padding: '20px 20px 16px', width: 300, zIndex: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: text }}>Edit element</div>
+                          <div style={{ fontSize: 11, color: muted, fontFamily: 'monospace', marginTop: 2 }}>{selectedElement.tag}</div>
+                        </div>
+                        <button onClick={dismissVisualPanel} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {/* Text content */}
+                        {selectedElement.text && (
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text content</label>
+                            <textarea
+                              value={editText}
+                              onChange={e => setEditText(e.target.value)}
+                              rows={2}
+                              style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                        )}
+
+                        {/* Colors */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text color</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
+                              <input type="color" value={editColor.startsWith('rgb') ? '#ffffff' : editColor} onChange={e => setEditColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                              <input value={editColor} onChange={e => setEditColor(e.target.value)} placeholder="color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
+                            </div>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Background</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '6px 10px' }}>
+                              <input type="color" value={editBgColor.startsWith('rgb') ? '#ffffff' : editBgColor} onChange={e => setEditBgColor(e.target.value)} style={{ width: 20, height: 20, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }} />
+                              <input value={editBgColor} onChange={e => setEditBgColor(e.target.value)} placeholder="bg color" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 11, color: text, fontFamily: 'monospace' }} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Font size */}
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Font size</label>
+                          <input value={editFontSize} onChange={e => setEditFontSize(e.target.value)} placeholder="e.g. 24px or text-2xl" style={{ width: '100%', background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                        <button onClick={dismissVisualPanel} style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={applyVisualEdit} style={{ flex: 2, padding: '10px 0', borderRadius: 10, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(188,96,69,0.3)' }}>Apply with AI ✦</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ width: 'min(760px, calc(100% - 52px))', minHeight: 440, borderRadius: 22, border: `1px solid ${border}`, background: surface, boxShadow: d ? 'none' : '0 24px 80px rgba(45,38,28,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: muted, position: 'relative', overflow: 'hidden' }}>
