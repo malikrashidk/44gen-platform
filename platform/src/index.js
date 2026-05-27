@@ -10,6 +10,7 @@ import planRoute from './routes/plan.js'
 import buildRoute from './routes/build.js'
 import projectsRoute from './routes/projects.js'
 import clarifyRoute from './routes/clarify.js'
+import imagesRoute from './routes/images.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -21,7 +22,7 @@ app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || false,
   credentials: true
 }))
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '20mb' }))
 
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -46,6 +47,7 @@ app.use('/api/plan', planLimiter, planRoute)
 app.use('/api/build', buildLimiter, buildRoute)
 app.use('/api/projects', projectsRoute)
 app.use('/api/clarify', planLimiter, clarifyRoute)
+app.use('/api/images', imagesRoute)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
 
