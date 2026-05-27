@@ -47,13 +47,16 @@ function walkFiles(root, { skipDirs = SKIP_DIRS, textOnly = false } = {}) {
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.name.startsWith('.') && entry.name !== '.env') continue
+      if (entry.isSymbolicLink()) continue
       if (entry.isDirectory() && skipDirs.has(entry.name)) continue
 
       const absolute = path.join(dir, entry.name)
+      const relative = path.relative(root, absolute).replaceAll(path.sep, '/')
+      if (relative.split('/').some(part => skipDirs.has(part))) continue
+
       if (entry.isDirectory()) {
         walk(absolute)
       } else {
-        const relative = path.relative(root, absolute).replaceAll(path.sep, '/')
         if (textOnly && CODE_SKIP_FILES.has(path.basename(relative))) continue
         if (!textOnly || isTextFile(relative)) files.push({ absolute, relative })
       }
