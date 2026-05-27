@@ -54,6 +54,10 @@ export default function Editor() {
 
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
+  const imageInputRef = useRef(null)
+  const [attachedImage, setAttachedImage] = useState(null) // { base64, mimeType, preview }
+  const [attachedUrl, setAttachedUrl] = useState('')
+  const [showUrlInput, setShowUrlInput] = useState(false)
   const esRef = useRef(null)
   const resizingChatRef = useRef(false)
 
@@ -711,7 +715,7 @@ export default function Editor() {
       const refinedPrompt = clarifyData.refined_prompt || userPrompt
       if (promptMode === 'build') {
         setMessages(prev => prev.filter(m => m.type !== 'status'))
-        await startDirectBuild(refinedPrompt)
+        await startDirectBuild(refinedPrompt, imageRef || null, urlRef || null)
         return
       }
 
@@ -752,6 +756,26 @@ export default function Editor() {
       setStage('idle')
     }
     setLoading(false)
+  }
+
+  const handleImageAttach = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(',')[1]
+      setAttachedImage({ base64, mimeType: file.type, preview: ev.target.result, name: file.name })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const handleRemoveImage = () => setAttachedImage(null)
+
+  const handleAttachUrl = () => {
+    if (!attachedUrl.trim()) return
+    setShowUrlInput(false)
   }
 
   const handleSubmit = async (e) => {
@@ -831,7 +855,7 @@ ${answerText}`
     setLoading(false)
   }
 
-  const startDirectBuild = async (buildPrompt) => {
+  const startDirectBuild = async (buildPrompt, imageData = null, referenceUrl = null) => {
     if (buildStartedRef.current) return
     buildStartedRef.current = true
     setLoading(true)
@@ -845,10 +869,17 @@ ${answerText}`
     upsertBuildStream({ heading: 'Creating build job...', subtext: '', phase: 'starting' })
 
     try {
+      const body = { prompt: buildPrompt, projectId }
+      if (imageData) {
+        body.referenceImage = { base64: imageData.base64, mimeType: imageData.mimeType }
+      }
+      if (referenceUrl) {
+        body.referenceUrl = referenceUrl
+      }
       const res = await fetch(`${API}/api/build/direct`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ prompt: buildPrompt, projectId })
+        body: JSON.stringify(body)
       })
       const { job_id, error } = await res.json()
       if (error) {
@@ -1568,9 +1599,66 @@ ${answerText}`
                   style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 14, color: text, lineHeight: 1.5, fontFamily: 'inherit', overflow: 'hidden', minHeight: 34 }}
                 />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8 }}>
-                  <button disabled title="Attach files coming soon" style={{ width: 32, height: 32, borderRadius: '50%', border: `1px solid ${border}`, background: surface, color: muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', opacity: 0.65 }}>
-                    <Plus size={15} />
-                  </button>
+                  {/* Hidden file input */}
+                  <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageAttach} style={{ display: 'none' }} />
+
+                  {/* Attach button */}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      title="Attach image or reference URL"
+                      disabled={loading || stage === 'building' || stage === 'awaiting_approval'}
+                      onClick={() => setShowUrlInput(prev => !prev)}
+                      style={{ width: 32, height: 32, borderRadius: '50%', border: `1px solid ${border}`, background: attachedImage || attachedUrl ? '#BC6045' : surface, color: attachedImage || attachedUrl ? '#fff' : muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+                      <Plus size={15} />
+                    </button>
+
+                    {/* Dropdown: Image upload or URL */}
+                    {showUrlInput && (
+                      <div style={{ position: 'absolute', bottom: 40, left: 0, background: d ? '#1a1a1a' : '#fff', border: `1px solid ${border}`, borderRadius: 14, padding: 12, width: 260, zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Attach reference</div>
+
+                        {/* Image upload option */}
+                        <button onClick={() => { imageInputRef.current?.click(); setShowUrlInput(false) }}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${border}`, background: 'transparent', color: text, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 8, textAlign: 'left' }}>
+                          🖼️ Upload image
+                          <span style={{ fontSize: 11, color: muted, marginLeft: 'auto' }}>PNG, JPG, etc</span>
+                        </button>
+
+                        {/* URL input */}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            value={attachedUrl}
+                            onChange={e => setAttachedUrl(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { handleAttachUrl(); setShowUrlInput(false) } }}
+                            placeholder="Paste design URL..."
+                            style={{ flex: 1, background: d ? '#111' : '#fafafa', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: text, outline: 'none' }}
+                          />
+                          <button onClick={() => { handleAttachUrl(); setShowUrlInput(false) }}
+                            style={{ padding: '8px 10px', borderRadius: 8, background: '#BC6045', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Attached image preview chip */}
+                  {attachedImage && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#1a1a1a' : '#f5f0eb', border: `1px solid ${border}`, borderRadius: 999, padding: '4px 8px 4px 4px', maxWidth: 160 }}>
+                      <img src={attachedImage.preview} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{attachedImage.name}</span>
+                      <button onClick={handleRemoveImage} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, display: 'flex', fontSize: 14, lineHeight: 1 }}>×</button>
+                    </div>
+                  )}
+
+                  {/* Attached URL chip */}
+                  {attachedUrl && !showUrlInput && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: d ? '#1a1a1a' : '#f5f0eb', border: `1px solid ${border}`, borderRadius: 999, padding: '4px 10px', maxWidth: 160 }}>
+                      <span style={{ fontSize: 12 }}>🔗</span>
+                      <span style={{ fontSize: 11, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{attachedUrl.replace('https://', '')}</span>
+                      <button onClick={() => setAttachedUrl('')} style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, display: 'flex', fontSize: 14, lineHeight: 1 }}>×</button>
+                    </div>
+                  )}
                   <button disabled title="Visual edits coming soon" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, borderRadius: 999, border: `1px solid ${border}`, background: surface, color: muted, padding: '0 12px', fontSize: 12, fontWeight: 800, cursor: 'default', opacity: 0.72 }}>
                     <Sparkles size={13} /> Visual edits
                   </button>
