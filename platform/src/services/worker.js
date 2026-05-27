@@ -167,6 +167,29 @@ function mergeWithExistingFiles(generatedFiles = [], existingFiles = []) {
   return [...merged.values()].sort((a, b) => a.path.localeCompare(b.path))
 }
 
+function summarizeFileChanges(previousFiles = [], nextFiles = []) {
+  const previous = new Map(sanitizeGeneratedFiles(previousFiles).map(file => [file.path, file.content]))
+  const next = new Map(sanitizeGeneratedFiles(nextFiles).map(file => [file.path, file.content]))
+  const added = []
+  const modified = []
+  const removed = []
+
+  for (const [path, content] of next) {
+    if (!previous.has(path)) added.push(path)
+    else if (previous.get(path) !== content) modified.push(path)
+  }
+
+  for (const path of previous.keys()) {
+    if (!next.has(path)) removed.push(path)
+  }
+
+  return {
+    added_files: added.sort(),
+    modified_files: modified.sort(),
+    removed_files: removed.sort()
+  }
+}
+
 async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
 
@@ -191,25 +214,33 @@ async function runJob(jobId) {
 
     emit('start', { message: 'Starting code generation...' })
 
-    const fileList = job.plan.files || ['src/App.jsx']
+    const manualFiles = Array.isArray(job.plan.manual_files)
+      ? sanitizeGeneratedFiles(job.plan.manual_files)
+      : null
+    const previousFiles = job.plan.previous_files || job.plan.existing_files || []
+    const fileList = manualFiles?.map(file => file.path) || job.plan.files || ['src/App.jsx']
     const isMultiFile = fileList.length > 1
     emit('code_start', {
       file: isMultiFile ? `${fileList.length} files` : 'src/App.jsx',
       message: isMultiFile
-        ? `Writing ${fileList.length} files: ${fileList.map(f => f.split('/').pop()).join(', ')}...`
-        : 'Writing src/App.jsx...'
+        ? `${manualFiles ? 'Preparing' : 'Writing'} ${fileList.length} files: ${fileList.map(f => f.split('/').pop()).join(', ')}...`
+        : `${manualFiles ? 'Preparing' : 'Writing'} src/App.jsx...`
     })
 
-    const generated = await generateCodeStream(
-      job.plan,
-      job.plan.current_phase || 1,
-      (chunk) => emit('code_chunk', { text: chunk }),
-      (thought) => emit('thought', { text: thought }),
-      job.plan.vision_image || null
-    )
+    const generated = manualFiles
+      ? { files: manualFiles, tokens_used: 0 }
+      : await generateCodeStream(
+        job.plan,
+        job.plan.current_phase || 1,
+        (chunk) => emit('code_chunk', { text: chunk }),
+        (thought) => emit('thought', { text: thought }),
+        job.plan.vision_image || null
+      )
 
     emit('code_end', {
-      message: `Code generation complete — ${generated.files.length} file(s) written`
+      message: manualFiles
+        ? `Code edit saved — ${generated.files.length} file(s) ready`
+        : `Code generation complete — ${generated.files.length} file(s) written`
     })
 
     let files = mergeWithExistingFiles(generated.files, job.plan.existing_files || [])
@@ -329,7 +360,8 @@ async function runJob(jobId) {
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
       plan: job.plan,
       summary,
-      files_written: filesWritten
+      files_written: filesWritten,
+      changes: summarizeFileChanges(previousFiles, files)
     }
 
     await supabase.from('conversations').insert({

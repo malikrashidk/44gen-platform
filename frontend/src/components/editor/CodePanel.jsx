@@ -27,6 +27,8 @@ export default function CodePanel({
   downloadingProject,
   copiedFile,
   setCopiedFile,
+  onSaveFile,
+  savingFile,
   darkMode,
   text,
   muted
@@ -41,10 +43,13 @@ export default function CodePanel({
   const editorHostRef = useRef(null)
   const editorRef = useRef(null)
   const modelRef = useRef(null)
+  const changeDisposableRef = useRef(null)
   const monacoRef = useRef(null)
   const darkModeRef = useRef(d)
   const [editorLoading, setEditorLoading] = useState(false)
   const [editorError, setEditorError] = useState('')
+  const [editedContent, setEditedContent] = useState(selectedFile?.content || '')
+  const [isDirty, setIsDirty] = useState(false)
 
   useEffect(() => {
     darkModeRef.current = d
@@ -78,7 +83,7 @@ export default function CodePanel({
         fontSize: 12,
         lineHeight: 19,
         minimap: { enabled: false },
-        readOnly: true,
+        readOnly: false,
         scrollBeyondLastLine: false,
         smoothScrolling: true,
         wordWrap: 'on'
@@ -94,8 +99,10 @@ export default function CodePanel({
     return () => {
       cancelled = true
       modelRef.current?.dispose()
+      changeDisposableRef.current?.dispose()
       editorRef.current?.dispose()
       modelRef.current = null
+      changeDisposableRef.current = null
       editorRef.current = null
       monacoRef.current = null
     }
@@ -111,6 +118,7 @@ export default function CodePanel({
 
     const uriPath = selectedFile?.path || 'src/App.jsx'
     const previousModel = modelRef.current
+    changeDisposableRef.current?.dispose()
     previousModel?.dispose()
     const model = monaco.editor.createModel(
       selectedFile?.content || '',
@@ -119,6 +127,13 @@ export default function CodePanel({
     )
     modelRef.current = model
     editorRef.current.setModel(model)
+    setEditedContent(selectedFile?.content || '')
+    setIsDirty(false)
+    changeDisposableRef.current = model.onDidChangeContent(() => {
+      const next = model.getValue()
+      setEditedContent(next)
+      setIsDirty(next !== (selectedFile?.content || ''))
+    })
   }, [selectedFile?.path, selectedFile?.content, editorLoading])
 
   const copySelectedFile = () => {
@@ -184,13 +199,23 @@ export default function CodePanel({
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             <div style={{ height: 42, padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderBottom: `1px solid ${codeBorder}`, color: muted, fontSize: 12, fontFamily: 'monospace' }}>
               <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{codeFilesLoading ? 'Loading files...' : selectedFile?.path}</span>
-              <button onClick={copySelectedFile}
-                disabled={!selectedFile?.content}
-                title="Copy current file"
-                style={{ display: 'flex', alignItems: 'center', gap: 5, height: 27, borderRadius: 7, border: `1px solid ${codeBorder}`, background: d ? '#161b22' : '#fff', color: copiedFile ? '#059669' : muted, padding: '0 9px', fontSize: 11, fontFamily: 'inherit', fontWeight: 700, cursor: selectedFile?.content ? 'pointer' : 'default', opacity: selectedFile?.content ? 1 : 0.55 }}>
-                {copiedFile ? <CheckCircle2 size={12} /> : <Copy size={12} />}
-                {copiedFile ? 'Copied' : 'Copy'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {isDirty && <span style={{ color: '#f59e0b', fontSize: 11, fontFamily: 'inherit' }}>Unsaved</span>}
+                <button onClick={copySelectedFile}
+                  disabled={!selectedFile?.content}
+                  title="Copy current file"
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, height: 27, borderRadius: 7, border: `1px solid ${codeBorder}`, background: d ? '#161b22' : '#fff', color: copiedFile ? '#059669' : muted, padding: '0 9px', fontSize: 11, fontFamily: 'inherit', fontWeight: 700, cursor: selectedFile?.content ? 'pointer' : 'default', opacity: selectedFile?.content ? 1 : 0.55 }}>
+                  {copiedFile ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {copiedFile ? 'Copied' : 'Copy'}
+                </button>
+                <button onClick={() => selectedFile?.path && onSaveFile?.(selectedFile.path, editedContent)}
+                  disabled={!isDirty || savingFile}
+                  title="Save file and rebuild"
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, height: 27, borderRadius: 7, border: 'none', background: isDirty ? '#BC6045' : (d ? '#222' : '#e5e7eb'), color: isDirty ? '#fff' : muted, padding: '0 10px', fontSize: 11, fontFamily: 'inherit', fontWeight: 800, cursor: isDirty && !savingFile ? 'pointer' : 'default', opacity: savingFile ? 0.75 : 1 }}>
+                  {savingFile ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle2 size={12} />}
+                  {savingFile ? 'Saving' : 'Save & rebuild'}
+                </button>
+              </div>
             </div>
             <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
               {(editorLoading || editorError) && (

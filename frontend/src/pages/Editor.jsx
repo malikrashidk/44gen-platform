@@ -44,6 +44,7 @@ export default function Editor() {
   const [selectedCodeFile, setSelectedCodeFile] = useState('')
   const [codeFilesLoading, setCodeFilesLoading] = useState(false)
   const [downloadingProject, setDownloadingProject] = useState(false)
+  const [savingCodeFile, setSavingCodeFile] = useState(false)
   const [promptMode, setPromptMode] = useState('plan')
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('44gen-chat-width'))
@@ -286,6 +287,61 @@ export default function Editor() {
       addMessage('assistant', err.message || 'Failed to download project.', 'error')
     } finally {
       setDownloadingProject(false)
+    }
+  }
+
+  const saveCodeFileAndBuild = async (filePath, content) => {
+    if (!sessionRef.current?.access_token || savingCodeFile || loading) return
+    setSavingCodeFile(true)
+    buildStartedRef.current = true
+    setLoading(true)
+    setStage('building')
+    setDetailsLog([])
+    setFullCode('')
+    codeChunksRef.current = ''
+    buildStreamMessageIdRef.current = null
+    processedEventCountRef.current = 0
+    stopPolling()
+    upsertBuildStream({
+      heading: `Saving ${filePath}...`,
+      subtext: '',
+      phase: 'starting',
+      step: { label: `Saving ${filePath}`, tone: 'active' }
+    })
+
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/files/save-and-build`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ path: filePath, content })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save file')
+
+      setCodeFiles(prev => {
+        const next = prev.some(file => file.path === filePath)
+          ? prev.map(file => file.path === filePath ? { ...file, content } : file)
+          : [...prev, { path: filePath, content }]
+        return next.sort((a, b) => a.path.localeCompare(b.path))
+      })
+      if (filePath === 'src/App.jsx') setFullCode(content)
+
+      upsertBuildStream({
+        heading: 'File saved. Rebuilding preview...',
+        subtext: '',
+        phase: 'connecting',
+        step: { label: 'Rebuilding with saved code', tone: 'active' }
+      })
+      reconnectAttemptsRef.current = 0
+      streamFinishedRef.current = false
+      connectToStream(data.job_id)
+    } catch (err) {
+      addMessage('assistant', err.message || 'Failed to save file.', 'error')
+      buildStartedRef.current = false
+      setStage('idle')
+      setLoading(false)
+    } finally {
+      setSavingCodeFile(false)
     }
   }
 
@@ -1442,6 +1498,12 @@ ${answerText}`
       const s = c.summary
       const filesWritten = s?.files_written || c.files_written || []
       const detailsOpen = Boolean(c.detailsOpen)
+      const detailsTab = c.detailsTab || 'changes'
+      const changes = c.changes || {}
+      const addedFiles = changes.added_files || []
+      const modifiedFiles = changes.modified_files || []
+      const removedFiles = changes.removed_files || []
+      const changeCount = addedFiles.length + modifiedFiles.length + removedFiles.length
       const completionDescription = s?.description || c.plan?.understanding || 'Your latest version is built, published, and ready to review.'
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
@@ -1485,7 +1547,7 @@ ${answerText}`
                 <ChevronRight size={13} style={{ transform: detailsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                 <span style={{ fontSize: 12, fontWeight: 700, color: text }}>Build details</span>
                 <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {filesWritten.length} file{filesWritten.length === 1 ? '' : 's'} · {c.credits_used} credits
+                  {changeCount || filesWritten.length} change{(changeCount || filesWritten.length) === 1 ? '' : 's'} · {c.credits_used} credits
                 </span>
               </span>
               <span style={{ fontSize: 11, flexShrink: 0 }}>{detailsOpen ? 'Hide' : 'View'}</span>
@@ -1493,22 +1555,74 @@ ${answerText}`
 
             {detailsOpen && (
               <div style={{ padding: '0 11px 11px', borderTop: `1px solid ${border}` }}>
-                {filesWritten.length > 0 && (
+                <div style={{ display: 'flex', gap: 5, marginTop: 10 }}>
+                  {[
+                    { id: 'changes', label: 'Changes' },
+                    { id: 'files', label: 'Files' },
+                    { id: 'activity', label: 'Activity' }
+                  ].map(tab => (
+                    <button key={tab.id} onClick={() => setMessages(prev => prev.map(m =>
+                      m.id === msg.id ? { ...m, content: { ...m.content, detailsTab: tab.id } } : m
+                    ))}
+                      style={{ flex: 1, border: `1px solid ${detailsTab === tab.id ? 'rgba(188,96,69,0.35)' : border}`, background: detailsTab === tab.id ? 'rgba(188,96,69,0.1)' : 'transparent', color: detailsTab === tab.id ? '#BC6045' : muted, borderRadius: 7, padding: '6px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {detailsTab === 'changes' && (
                   <div style={{ marginTop: 10 }}>
-                    <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 12, color: text }}>Files updated</p>
-                    {filesWritten.map((f, i) => (
+                    {changeCount > 0 ? (
+                      [
+                        { label: 'Added', files: addedFiles, color: '#10b981' },
+                        { label: 'Modified', files: modifiedFiles, color: '#3b82f6' },
+                        { label: 'Removed', files: removedFiles, color: '#ef4444' }
+                      ].filter(group => group.files.length > 0).map(group => (
+                        <div key={group.label} style={{ marginBottom: 8 }}>
+                          <p style={{ fontWeight: 800, marginBottom: 5, fontSize: 11, color: group.color }}>{group.label}</p>
+                          {group.files.map(file => (
+                            <div key={file} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                              <FileCode size={11} style={{ color: group.color }} />
+                              <span style={{ fontFamily: 'monospace', fontSize: 11, color: muted }}>{file}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    ) : (
+                      <p style={{ color: muted, fontSize: 12, marginTop: 4 }}>No source file changes were detected for this build.</p>
+                    )}
+                  </div>
+                )}
+
+                {detailsTab === 'files' && (
+                  <div style={{ marginTop: 10 }}>
+                    {filesWritten.length > 0 ? filesWritten.map((f, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <FileCode size={11} style={{ color: '#3b82f6' }} />
                         <span style={{ fontFamily: 'monospace', fontSize: 11, color: muted }}>{f}</span>
                       </div>
-                    ))}
+                    )) : (
+                      <p style={{ color: muted, fontSize: 12 }}>No files recorded.</p>
+                    )}
+                    {s?.tech?.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+                        {s.tech.map((t, i) => (
+                          <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 5 }}>{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {s?.tech?.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
-                    {s.tech.map((t, i) => (
-                      <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 5 }}>{t}</span>
+                {detailsTab === 'activity' && (
+                  <div style={{ marginTop: 10 }}>
+                    {detailsLog.length > 0 ? detailsLog.slice(-8).map((item, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginBottom: 5, fontSize: 11 }}>
+                        <span style={{ flexShrink: 0 }}>{item.icon}</span>
+                        <span style={{ color: item.color || text, flex: 1, lineHeight: 1.4 }}>{item.msg}</span>
+                      </div>
+                    )) : (
+                      <p style={{ color: muted, fontSize: 12 }}>Activity log is available while the build is running.</p>
                     ))}
                   </div>
                 )}
@@ -2161,6 +2275,8 @@ ${answerText}`
               downloadingProject={downloadingProject}
               copiedFile={copiedFile}
               setCopiedFile={setCopiedFile}
+              onSaveFile={saveCodeFileAndBuild}
+              savingFile={savingCodeFile}
               darkMode={d}
               text={text}
               muted={muted}
