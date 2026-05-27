@@ -1,6 +1,28 @@
+import { useEffect, useRef } from 'react'
 import {
   CheckCircle2, Code, Copy, Download, FileCode, FolderOpen, Loader2, RefreshCw
 } from 'lucide-react'
+import * as monaco from 'monaco-editor'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+
+self.MonacoEnvironment = self.MonacoEnvironment || {
+  getWorker() {
+    return new editorWorker()
+  }
+}
+
+function languageForPath(filePath = '') {
+  const ext = filePath.split('.').pop()?.toLowerCase()
+  if (ext === 'jsx') return 'javascript'
+  if (ext === 'tsx') return 'typescript'
+  if (ext === 'js') return 'javascript'
+  if (ext === 'ts') return 'typescript'
+  if (ext === 'css') return 'css'
+  if (ext === 'json') return 'json'
+  if (ext === 'html') return 'html'
+  if (ext === 'md') return 'markdown'
+  return 'plaintext'
+}
 
 export default function CodePanel({
   codeFiles,
@@ -21,8 +43,54 @@ export default function CodePanel({
     ? codeFiles
     : (fullCode ? [{ path: 'src/App.jsx', content: fullCode }] : [])
   const selectedFile = visibleCodeFiles.find(file => file.path === selectedCodeFile) || visibleCodeFiles[0]
+  const hasCodeFiles = visibleCodeFiles.length > 0
   const d = darkMode
   const codeBorder = d ? '#30363d' : '#d0d7de'
+  const editorHostRef = useRef(null)
+  const editorRef = useRef(null)
+  const modelRef = useRef(null)
+
+  useEffect(() => {
+    if (!editorHostRef.current || editorRef.current) return
+
+    editorRef.current = monaco.editor.create(editorHostRef.current, {
+      automaticLayout: true,
+      fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+      fontSize: 12,
+      lineHeight: 19,
+      minimap: { enabled: false },
+      readOnly: true,
+      scrollBeyondLastLine: false,
+      smoothScrolling: true,
+      wordWrap: 'on'
+    })
+
+    return () => {
+      modelRef.current?.dispose()
+      editorRef.current?.dispose()
+      modelRef.current = null
+      editorRef.current = null
+    }
+  }, [hasCodeFiles])
+
+  useEffect(() => {
+    monaco.editor.setTheme(d ? 'vs-dark' : 'vs')
+  }, [d])
+
+  useEffect(() => {
+    if (!editorRef.current) return
+
+    const uriPath = selectedFile?.path || 'src/App.jsx'
+    const previousModel = modelRef.current
+    previousModel?.dispose()
+    const model = monaco.editor.createModel(
+      selectedFile?.content || '',
+      languageForPath(uriPath),
+      monaco.Uri.parse(`file:///${uriPath}`)
+    )
+    modelRef.current = model
+    editorRef.current.setModel(model)
+  }, [selectedFile?.path, selectedFile?.content])
 
   const copySelectedFile = () => {
     if (!selectedFile?.content) return
@@ -33,7 +101,7 @@ export default function CodePanel({
 
   return (
     <div style={{ flex: 1, display: 'flex', minHeight: 0, background: d ? '#0d1117' : '#f6f8fa' }}>
-      {visibleCodeFiles.length ? (
+      {hasCodeFiles ? (
         <>
           <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${codeBorder}`, background: d ? '#0d1117' : '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ height: 42, padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderBottom: `1px solid ${codeBorder}` }}>
@@ -95,9 +163,7 @@ export default function CodePanel({
                 {copiedFile ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <pre style={{ flex: 1, overflow: 'auto', margin: 0, padding: 16, fontSize: 11, fontFamily: 'monospace', color: d ? '#c9d1d9' : '#24292f', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {selectedFile?.content || ''}
-            </pre>
+            <div ref={editorHostRef} style={{ flex: 1, minHeight: 0 }} />
           </div>
         </>
       ) : (
