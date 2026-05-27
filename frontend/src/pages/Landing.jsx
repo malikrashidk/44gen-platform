@@ -404,7 +404,7 @@ export default function Landing() {
                 gradient: 'linear-gradient(135deg, #020817 0%, #0c1a2e 50%, #020817 100%)',
                 accent: '#38bdf8',
                 ui: [
-                  { type: 'hero', label: 'Hi, I'm Alex Rivera' },
+                  { type: 'hero', label: "Hi, I'm Alex Rivera" },
                   { type: 'pills', values: ['React', 'Node.js', 'AWS'] },
                 ]
               },
