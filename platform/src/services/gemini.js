@@ -497,11 +497,17 @@ export async function generateSummary(plan, filesWritten) {
       systemInstruction: 'Return ONLY valid JSON, no markdown, no backticks.'
     })
 
-    const prompt = `Summarize what was built:
+    const prompt = `Summarize what was built for a non-technical user.
+Keep the title and description friendly, concrete, and outcome-focused.
+Do not mention source files, code modules, internal build steps, or implementation details in title/description/features.
+Use "features" for visible user-facing improvements or working parts of the app.
+Keep files_written and tech exactly as structured technical metadata.
+
+Return this JSON shape:
 {
   "title": "short title",
-  "description": "2-3 sentences about the app",
-  "features": ["feature 1", "feature 2", "feature 3"],
+  "description": "2-3 friendly sentences explaining what is done and what works now",
+  "features": ["visible improvement 1", "visible improvement 2", "visible improvement 3"],
   "files_written": ${JSON.stringify(filesWritten)},
   "tech": ["React", "Tailwind CSS"]
 }

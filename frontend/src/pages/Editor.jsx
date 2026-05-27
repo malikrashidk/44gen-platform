@@ -1440,84 +1440,112 @@ ${answerText}`
     if (msg.type === 'complete') {
       const c = msg.content
       const s = c.summary
+      const filesWritten = s?.files_written || c.files_written || []
+      const detailsOpen = Boolean(c.detailsOpen)
+      const completionDescription = s?.description || c.plan?.understanding || 'Your latest version is built, published, and ready to review.'
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
           <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, padding: 14, marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10b981', fontWeight: 600 }}>
-                <CheckCircle2 size={14} /> {s?.title || `Phase ${c.phase} Complete!`}
+                <CheckCircle2 size={14} /> Done — {s?.title || `Phase ${c.phase} is complete`}
               </div>
             </div>
+
+            <p style={{ marginBottom: 10, color: d ? '#d4d4d4' : '#3f3a35', fontSize: 13, lineHeight: 1.6 }}>
+              {completionDescription}
+            </p>
+
+            {s?.features?.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>What is working now:</p>
+                {s.features.slice(0, 5).map((f, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
+                    <CheckCircle2 size={12} style={{ color: '#10b981', marginTop: 2, flexShrink: 0 }} />
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setActiveTab('details')}
-                style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: `1px solid ${border}`, background: 'transparent', color: text, fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>
-                View details
-              </button>
               <button onClick={() => { setActiveTab('preview'); setPreviewKey(k => k + 1) }}
-                style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                Preview →
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                Review live preview →
               </button>
             </div>
           </div>
 
-          {s && (
-            <div style={{ color: text, lineHeight: 1.7 }}>
-              <p style={{ marginBottom: 10, color: d ? '#ccc' : '#555', fontSize: 13 }}>{s.description}</p>
-
-              {s.features?.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>What was built:</p>
-                  {s.features.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: d ? '#ccc' : '#444', fontSize: 13 }}>
-                      <span style={{ color: '#10b981' }}>•</span> {f}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {s.files_written?.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <p style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>Files written:</p>
-                  {s.files_written.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <FileCode size={11} style={{ color: '#3b82f6' }} />
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: muted }}>{f}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {s.tech?.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
-                  {s.tech.map((t, i) => (
-                    <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 5 }}>{t}</span>
-                  ))}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, color: muted, fontSize: 12, paddingTop: 8, borderTop: `1px solid ${border}` }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Zap size={11} style={{ color: '#BC6045' }} /> {c.credits_used} credits
+          <div style={{ border: `1px solid ${border}`, borderRadius: 12, overflow: 'hidden', background: d ? '#151515' : '#fffdf9', marginBottom: 10 }}>
+            <button onClick={() => setMessages(prev => prev.map(m =>
+              m.id === msg.id ? { ...m, content: { ...m.content, detailsOpen: !detailsOpen } } : m
+            ))}
+              style={{ width: '100%', border: 'none', background: 'transparent', color: muted, cursor: 'pointer', padding: '9px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, textAlign: 'left' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                <ChevronRight size={13} style={{ transform: detailsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: text }}>Build details</span>
+                <span style={{ fontSize: 11, color: muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {filesWritten.length} file{filesWritten.length === 1 ? '' : 's'} · {c.credits_used} credits
                 </span>
-                <a href={'https://' + c.subdomain + '.44gen.com'} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#BC6045', textDecoration: 'none', fontSize: 12 }}>
-                  <Globe size={11} /> {c.subdomain}.44gen.com <ExternalLink size={10} />
-                </a>
-              </div>
+              </span>
+              <span style={{ fontSize: 11, flexShrink: 0 }}>{detailsOpen ? 'Hide' : 'View'}</span>
+            </button>
 
-              {c.plan && c.total_phases > 1 && c.phase < c.total_phases && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
-                  <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>
-                    Ready for Phase {c.phase + 1}? {c.next_phase_description}
-                  </p>
-                  <button onClick={() => handleContinuePhase(c.phase + 1, c.plan)}
-                    style={{ background: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                    Continue Phase {c.phase + 1} →
+            {detailsOpen && (
+              <div style={{ padding: '0 11px 11px', borderTop: `1px solid ${border}` }}>
+                {filesWritten.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 12, color: text }}>Files updated</p>
+                    {filesWritten.map((f, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <FileCode size={11} style={{ color: '#3b82f6' }} />
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: muted }}>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {s?.tech?.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
+                    {s.tech.map((t, i) => (
+                      <span key={i} style={{ fontSize: 11, background: d ? '#222' : '#f0f0f0', color: muted, padding: '2px 8px', borderRadius: 5 }}>{t}</span>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, color: muted, fontSize: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Zap size={11} style={{ color: '#BC6045' }} /> {c.credits_used} credits used
+                  </span>
+                  <button onClick={() => setActiveTab('details')}
+                    style={{ border: `1px solid ${border}`, background: 'transparent', color: text, borderRadius: 7, padding: '5px 9px', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                    Activity log
                   </button>
                 </div>
-              )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ color: text, lineHeight: 1.7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', color: muted, fontSize: 12, paddingTop: 2 }}>
+              <a href={'https://' + c.subdomain + '.44gen.com'} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#BC6045', textDecoration: 'none', fontSize: 12 }}>
+                <Globe size={11} /> {c.subdomain}.44gen.com <ExternalLink size={10} />
+              </a>
             </div>
-          )}
+
+            {c.plan && c.total_phases > 1 && c.phase < c.total_phases && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>
+                  Ready for Phase {c.phase + 1}? {c.next_phase_description}
+                </p>
+                <button onClick={() => handleContinuePhase(c.phase + 1, c.plan)}
+                  style={{ background: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                  Continue Phase {c.phase + 1} →
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )
     }
