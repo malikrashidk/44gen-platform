@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemini.js'
 import { buildAndDeploy } from './builder.js'
 import { sanitizeGeneratedFiles } from './fileSafety.js'
@@ -8,10 +8,6 @@ import { sanitizeGeneratedFiles } from './fileSafety.js'
 // Switching to cluster mode will silently break SSE streaming — each worker has its own Map.
 // If horizontal scaling is needed, replace with Redis pub/sub.
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 async function purgeCloudflareCache(subdomain) {
   const zoneId = process.env.CF_ZONE_ID
@@ -24,10 +20,15 @@ async function purgeCloudflareCache(subdomain) {
         'Authorization': `Bearer ${apiToken}`,
         'Content-Type': 'application/json'
       },
+      // #35: Purge index.html + root path. Hashed assets (e.g. /assets/index-abc.js) have
+      // new URLs on every build so they're never stale — no need to purge them.
+      // Ensure Nginx serves index.html with Cache-Control: no-cache (short TTL) and
+      // hashed assets with Cache-Control: max-age=31536000, immutable.
       body: JSON.stringify({
         files: [
           `https://${subdomain}.44gen.com/`,
-          `https://${subdomain}.44gen.com/index.html`
+          `https://${subdomain}.44gen.com/index.html`,
+          `https://${subdomain}.44gen.com/assets/`,
         ]
       })
     })
