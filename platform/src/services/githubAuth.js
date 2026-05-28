@@ -7,10 +7,12 @@ const supabase = createClient(
 )
 
 function tokenSecret() {
-  return process.env.GITHUB_TOKEN_ENCRYPTION_KEY ||
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.JWT_SECRET ||
-    '44gen-dev-token-secret'
+  const key = process.env.GITHUB_TOKEN_ENCRYPTION_KEY
+  if (!key) {
+    console.warn('[GitHubAuth] GITHUB_TOKEN_ENCRYPTION_KEY is not set. Set a dedicated 32-byte secret in .env.')
+  }
+  // Do NOT fall back to SUPABASE_SECRET_KEY — key rotation would silently invalidate all stored tokens.
+  return key || '44gen-dev-token-secret-CHANGE-IN-PRODUCTION'
 }
 
 function key() {
@@ -93,3 +95,4 @@ export async function githubRequest(token, url, options = {}) {
   }
   return data
 }
+
