@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext({})
@@ -8,6 +8,15 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null)
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // #33: Memoize fetchProfile so it has a stable reference across renders.
+  // Without useCallback it's recreated every render, causing useEffect dep-array
+  // warnings and potential infinite loops in consumers that list it as a dep.
+  const fetchProfile = useCallback(async (userId) => {
+    const { data } = await supabase
+      .from('profiles').select('*').eq('id', userId).single()
+    setProfile(data)
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -28,13 +37,7 @@ export const AuthProvider = ({ children }) => {
     )
 
     return () => subscription.unsubscribe()
-  }, [])
-
-  const fetchProfile = async (userId) => {
-    const { data } = await supabase
-      .from('profiles').select('*').eq('id', userId).single()
-    setProfile(data)
-  }
+  }, [fetchProfile])
 
   const signOut = async () => {
     await supabase.auth.signOut()
