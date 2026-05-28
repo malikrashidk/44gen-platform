@@ -25,7 +25,12 @@ app.use(cors({
   credentials: true
 }))
 
-app.use(express.json({ limit: '20mb' }))
+app.use(express.json({
+  limit: '20mb',
+  verify: (req, _res, buf) => {
+    if (req.originalUrl === '/api/billing/webhook') req.rawBody = buf
+  }
+}))
 app.post('/api/billing/webhook', polarWebhookHandler)
 
 app.use('/api/', rateLimit({

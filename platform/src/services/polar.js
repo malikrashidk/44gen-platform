@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase.js'
 import { BILLING_PLANS, planFromPolarProduct } from './billingPlans.js'
+import crypto from 'node:crypto'
 
 const POLAR_API = {
   sandbox: 'https://sandbox-api.polar.sh/v1',
@@ -22,6 +23,65 @@ function requirePolarToken() {
     throw err
   }
   return token
+}
+
+function decodeWebhookSecret(secret) {
+  const value = String(secret || '').trim()
+  if (!value) return null
+  const raw = value.startsWith('whsec_') ? value.slice(6) : value
+  try {
+    return Buffer.from(raw, 'base64')
+  } catch {
+    return Buffer.from(raw)
+  }
+}
+
+function timingSafeEqualString(a, b) {
+  const left = Buffer.from(String(a || ''))
+  const right = Buffer.from(String(b || ''))
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+export function verifyPolarWebhook({ rawBody, headers, secret }) {
+  const signingSecret = decodeWebhookSecret(secret)
+  if (!signingSecret) {
+    const err = new Error('Polar webhook secret is not configured.')
+    err.status = 503
+    throw err
+  }
+  if (!rawBody) {
+    const err = new Error('Missing raw webhook body.')
+    err.status = 400
+    throw err
+  }
+
+  const webhookId = headers['webhook-id']
+  const webhookTimestamp = headers['webhook-timestamp']
+  const webhookSignature = headers['webhook-signature']
+  if (!webhookId || !webhookTimestamp || !webhookSignature) {
+    const err = new Error('Missing Polar webhook signature headers.')
+    err.status = 400
+    throw err
+  }
+
+  const timestamp = Number(webhookTimestamp)
+  if (!Number.isFinite(timestamp) || Math.abs(Date.now() / 1000 - timestamp) > 300) {
+    const err = new Error('Polar webhook timestamp is outside the allowed window.')
+    err.status = 400
+    throw err
+  }
+
+  const signedPayload = Buffer.concat([
+    Buffer.from(`${webhookId}.${webhookTimestamp}.`),
+    Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody)
+  ])
+  const expected = `v1,${crypto.createHmac('sha256', signingSecret).update(signedPayload).digest('base64')}`
+  const received = String(webhookSignature).split(' ')
+  if (!received.some(signature => timingSafeEqualString(signature, expected))) {
+    const err = new Error('Invalid Polar webhook signature.')
+    err.status = 400
+    throw err
+  }
 }
 
 export async function createPolarCheckout({ user, plan, customerIpAddress }) {

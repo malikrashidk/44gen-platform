@@ -1,8 +1,7 @@
 import { Router } from 'express'
-import { Webhooks } from '@polar-sh/express'
 import { requireAuth } from '../middleware/auth.js'
 import { getPaidPlan } from '../services/billingPlans.js'
-import { createPolarCheckout, createPolarCustomerPortal, handlePolarPayload, polarServer } from '../services/polar.js'
+import { createPolarCheckout, createPolarCustomerPortal, handlePolarPayload, polarServer, verifyPolarWebhook } from '../services/polar.js'
 
 export const billingRouter = Router()
 
@@ -61,17 +60,17 @@ billingRouter.post('/portal', requireAuth, async (req, res) => {
   }
 })
 
-let webhookHandler = null
-
-export function polarWebhookHandler(req, res, next) {
-  if (!process.env.POLAR_WEBHOOK_SECRET) {
-    return res.status(503).json({ error: 'Polar webhook secret is not configured.' })
-  }
-  if (!webhookHandler) {
-    webhookHandler = Webhooks({
-      webhookSecret: process.env.POLAR_WEBHOOK_SECRET,
-      onPayload: handlePolarPayload
+export async function polarWebhookHandler(req, res) {
+  try {
+    verifyPolarWebhook({
+      rawBody: req.rawBody,
+      headers: req.headers,
+      secret: process.env.POLAR_WEBHOOK_SECRET
     })
+    await handlePolarPayload(req.body)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[Billing] Webhook failed:', err.message)
+    res.status(err.status || 400).json({ error: err.message || 'Webhook failed' })
   }
-  return webhookHandler(req, res, next)
 }
