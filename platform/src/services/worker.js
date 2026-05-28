@@ -3,6 +3,11 @@ import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemi
 import { buildAndDeploy } from './builder.js'
 import { sanitizeGeneratedFiles } from './fileSafety.js'
 
+// ⚠️  FIX #34 (doc): jobStore and sseConnections (in build.js) are module-level Maps.
+// This REQUIRES PM2 single-process mode (not cluster mode).
+// Switching to cluster mode will silently break SSE streaming — each worker has its own Map.
+// If horizontal scaling is needed, replace with Redis pub/sub.
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SECRET_KEY
@@ -366,25 +371,32 @@ async function runJob(jobId) {
       subdomain
     }).eq('id', job.project_id)
 
+    // FIX #9: Re-fetch current credits immediately before deduction instead of using the
+    // snapshot taken at job start (which may be minutes stale for long builds).
+    // The .gte() guard ensures atomicity — if balance changed, updatedProfile is null.
+    const { data: freshProfile } = await supabase
+      .from('profiles').select('credits').eq('id', job.user_id).single()
+    const creditsBeforeDeduction = freshProfile?.credits ?? profile.credits
+
     const { data: updatedProfile } = await supabase
       .from('profiles')
-      .update({ credits: profile.credits - credits_used })
+      .update({ credits: creditsBeforeDeduction - credits_used })
       .eq('id', job.user_id)
       .gte('credits', credits_used)
       .select('credits')
       .single()
 
     if (!updatedProfile) {
-      console.warn('[Worker] Credit deduction skipped — balance changed during build')
+      console.warn('[Worker] Credit deduction skipped — insufficient balance at deduction time (credits_used:', credits_used, ', balance:', creditsBeforeDeduction, ')')
     }
 
     await supabase.from('credit_transactions').insert({
       user_id: job.user_id,
       project_id: job.project_id,
       action: 'build',
-      credits_before: profile.credits,
+      credits_before: creditsBeforeDeduction,
       credits_used,
-      credits_after: updatedProfile?.credits ?? profile.credits - credits_used,
+      credits_after: updatedProfile?.credits ?? creditsBeforeDeduction - credits_used,
       tokens_used,
       description: `Phase ${job.plan.current_phase}/${job.plan.total_phases} — ${filesWritten.length} file(s)`
     })
@@ -422,7 +434,8 @@ async function runJob(jobId) {
 
   } catch (err) {
     clearTimeout(timeoutHandle)
-    console.error('[Worker] Job failed:', err.message)
+    // FIX #8: Log full error object (not just .message) so stack traces appear in PM2 logs
+    console.error('[Worker] Job failed:', err)
     await supabase.from('build_jobs')
       .update({ status: 'failed', error: err.message }).eq('id', jobId)
     await flushPersist(jobId)
@@ -434,3 +447,4 @@ async function runJob(jobId) {
     })
   }
 }
+
