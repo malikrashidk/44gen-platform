@@ -5,16 +5,43 @@ import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
 
-// Take screenshot of a URL using a free screenshot service
-async function captureScreenshot(url) {
+// Validate that a URL is safe to use as a reference screenshot (prevent SSRF)
+function isSafeReferenceUrl(rawUrl) {
   try {
-    // Use screenshotone.com free tier or similar
-    // Fallback: use microlink API which is free
+    const parsed = new URL(rawUrl)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    // Block private/internal address ranges
+    if (
+      host === 'localhost' ||
+      host.endsWith('.local') ||
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||  // link-local / AWS metadata
+      /^::1$/.test(host) ||
+      /^fc00:/i.test(host) ||
+      /^fe80:/i.test(host)
+    ) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Take screenshot of a URL using Microlink API
+async function captureScreenshot(url) {
+  // SSRF guard: only allow public HTTPS URLs
+  if (!isSafeReferenceUrl(url)) {
+    console.warn('[Screenshot] Blocked unsafe reference URL:', url)
+    return null
+  }
+  try {
     const apiUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&meta=false&embed=screenshot.url`
     const res = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) })
     const data = await res.json()
     if (data?.data?.screenshot?.url) {
-      // Download the screenshot and convert to base64
       const imgRes = await fetch(data.data.screenshot.url, { signal: AbortSignal.timeout(10000) })
       const arrayBuffer = await imgRes.arrayBuffer()
       const base64 = Buffer.from(arrayBuffer).toString('base64')
@@ -30,7 +57,45 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY
 )
 
+// Per-user SSE connection tracking — prevents resource exhaustion
+// (PM2 single-process: this Map is global and correct)
+const sseConnections = new Map() // userId -> count
+const MAX_SSE_PER_USER = 5
+
+function acquireSseSlot(userId) {
+  const current = sseConnections.get(userId) || 0
+  if (current >= MAX_SSE_PER_USER) return false
+  sseConnections.set(userId, current + 1)
+  return true
+}
+
+function releaseSseSlot(userId) {
+  const current = sseConnections.get(userId) || 0
+  const next = Math.max(0, current - 1)
+  if (next === 0) sseConnections.delete(userId)
+  else sseConnections.set(userId, next)
+}
+
+// Sanitize a favicon URL — strip anything that could inject HTML
+function sanitizeFaviconUrl(url) {
+  if (!url || typeof url !== 'string') return null
+  try {
+    const parsed = new URL(url.trim())
+    // Only allow http/https/data URIs; strip everything else
+    if (!['http:', 'https:', 'data:'].includes(parsed.protocol)) return null
+    // Encode the href so it can't break out of the attribute
+    return url.trim().replace(/['"<>]/g, encodeURIComponent)
+  } catch {
+    return null
+  }
+}
+
 async function createBuildJob({ projectId, userId, plan }) {
+  // Sanitize favicon URL before storing in the job plan
+  if (plan?.favicon_url) {
+    plan = { ...plan, favicon_url: sanitizeFaviconUrl(plan.favicon_url) }
+  }
+
   const { data: profile } = await supabase
     .from('profiles').select('credits').eq('id', userId).single()
   if (!profile || profile.credits < 0.5) {
@@ -45,9 +110,9 @@ async function createBuildJob({ projectId, userId, plan }) {
     .select().single()
   if (error) throw error
 
-  setTimeout(() => {
-    processJob(job.id).catch(err => console.error('[Build] Job error:', err.message))
-  }, 1500)
+  // FIX #11: No setTimeout delay — processJob is fire-and-forget and doesn't block the HTTP response.
+  // The 1500ms delay was unnecessary and only added latency before the user saw 'queued'.
+  processJob(job.id).catch(err => console.error('[Build] Job error:', err))
 
   return job
 }
@@ -279,14 +344,15 @@ router.post('/direct', requireAuth, async (req, res) => {
     if (faviconData && isFaviconOnlyRequest(prompt)) {
       try {
         const { buildAndDeploy } = await import('../services/builder.js')
-        const { data: existingFiles } = await supabase
+        // FIX #10: renamed to faviconDbFiles to avoid shadowing outer existingFiles variable
+        const { data: faviconDbFiles } = await supabase
           .from('project_files').select('file_path, content').eq('project_id', projectId)
 
-        if (!existingFiles?.length) {
+        if (!faviconDbFiles?.length) {
           return res.status(400).json({ error: 'Build your app first, then change the favicon.' })
         }
 
-        const files = existingFiles.map(f => ({ path: f.file_path, content: f.content }))
+        const files = faviconDbFiles.map(f => ({ path: f.file_path, content: f.content }))
         await buildAndDeploy(projectId, files, () => {}, {
           appName: project.name || 'App',
           faviconEmoji: faviconData.reset ? null : (faviconData.faviconEmoji || null),
@@ -322,6 +388,11 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
   const { jobId } = req.params
   const userId = req.user.id
 
+  // FIX #6: Enforce per-user SSE connection limit to prevent resource exhaustion
+  if (!acquireSseSlot(userId)) {
+    return res.status(429).json({ error: 'Too many active stream connections. Please close other tabs and retry.' })
+  }
+
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -350,6 +421,7 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
     if (!job) {
       send({ type: 'error', message: 'Job not found' })
       clearInterval(keepalive)
+      releaseSseSlot(userId)
       res.end()
       return
     }
@@ -357,6 +429,7 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
     if (job.user_id !== userId) {
       send({ type: 'error', message: 'Forbidden' })
       clearInterval(keepalive)
+      releaseSseSlot(userId)
       res.end()
       return
     }
@@ -367,6 +440,7 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
 
     if (job.status === 'done' || job.status === 'failed') {
       clearInterval(keepalive)
+      releaseSseSlot(userId)
       setTimeout(() => res.end(), 300)
       return
     }
@@ -375,6 +449,7 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
       send(event)
       if (event.type === 'done' || event.type === 'error') {
         clearInterval(keepalive)
+        releaseSseSlot(userId)
         setTimeout(() => res.end(), 500)
       }
     })
@@ -382,10 +457,12 @@ router.get('/stream/:jobId', requireAuth, async (req, res) => {
     req.on('close', () => {
       clearInterval(keepalive)
       unsubscribe()
+      releaseSseSlot(userId)
     })
   } catch (err) {
     send({ type: 'error', message: err.message })
     clearInterval(keepalive)
+    releaseSseSlot(userId)
     res.end()
   }
 })
@@ -402,3 +479,4 @@ router.get('/status/:jobId', requireAuth, async (req, res) => {
 })
 
 export default router
+
