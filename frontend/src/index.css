@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -190,9 +191,10 @@ select {
   margin: 0;
   color: #f6f7fb;
   font-size: clamp(40px, 6vw, 82px);
-  line-height: 0.96;
-  letter-spacing: -0.07em;
-  font-weight: 900;
+  line-height: 1.03;
+  letter-spacing: -0.045em;
+  font-weight: 850;
+  font-family: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 .public-title span,
@@ -234,11 +236,14 @@ select {
 
 .public-footer {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
-  padding: 38px clamp(18px, 5vw, 72px);
-  display: flex;
+  padding: clamp(38px, 6vw, 68px) clamp(18px, 5vw, 72px);
+  display: grid;
+  grid-template-columns: 1.15fr 1.85fr;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 28px;
+  gap: clamp(28px, 6vw, 80px);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(115,216,255,0.08), transparent 32rem),
+    rgba(0, 0, 0, 0.12);
 }
 
 .public-footer p {
@@ -247,6 +252,27 @@ select {
   color: rgba(246, 247, 251, 0.48);
   line-height: 1.65;
   font-size: 14px;
+}
+
+.public-footer-links {
+  align-items: start;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 18px;
+}
+
+.public-footer-group {
+  display: grid;
+  gap: 10px;
+}
+
+.public-footer-heading {
+  color: rgba(246, 247, 251, 0.92);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
 }
 
 .public-reveal {
@@ -283,7 +309,11 @@ select {
   }
 
   .public-footer {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .public-footer-links {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 }
 

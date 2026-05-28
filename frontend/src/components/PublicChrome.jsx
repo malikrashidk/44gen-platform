@@ -150,10 +150,23 @@ export function PublicFooter() {
         <p>Build, refine, deploy, and export real React apps from one calm workspace.</p>
       </div>
       <div className="public-footer-links">
-        <Link to="/pricing">Pricing</Link>
-        <Link to="/contact">Contact</Link>
-        <Link to="/privacy">Privacy</Link>
-        <Link to="/terms">Terms</Link>
+        <div className="public-footer-group">
+          <div className="public-footer-heading">Product</div>
+          <Link to="/">Builder</Link>
+          <Link to="/pricing">Pricing</Link>
+          <Link to="/auth">Dashboard</Link>
+        </div>
+        <div className="public-footer-group">
+          <div className="public-footer-heading">Support</div>
+          <Link to="/contact">Contact</Link>
+          <Link to="/pricing">Billing</Link>
+          <Link to="/auth">Sign in</Link>
+        </div>
+        <div className="public-footer-group">
+          <div className="public-footer-heading">Company</div>
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/terms">Terms</Link>
+        </div>
       </div>
     </footer>
   )
