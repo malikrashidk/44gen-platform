@@ -1,10 +1,6 @@
 import crypto from 'node:crypto'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 function tokenSecret() {
   const key = process.env.GITHUB_TOKEN_ENCRYPTION_KEY
