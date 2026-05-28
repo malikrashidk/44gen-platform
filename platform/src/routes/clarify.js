@@ -3,10 +3,6 @@ import { supabase } from '../lib/supabase.js'
 import { clarifyRequest, isTemporaryGeminiError } from '../services/gemini.js'
 import { requireAuth } from '../middleware/auth.js'
 
-// #38: Validate UUID format before passing to Supabase
-function isValidUUID(str) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
-}
 
 
 // #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
