@@ -3,7 +3,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import compression from 'compression'
 import rateLimit from 'express-rate-limit'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from './lib/supabase.js'
 import 'dotenv/config'
 
 import planRoute from './routes/plan.js'
@@ -57,7 +57,6 @@ app.use((_req, res) => res.status(404).json({ error: 'Not found' }))
 
 async function recoverStaleJobs() {
   try {
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY)
 
     const { data: stale } = await supabase
       .from('build_jobs')
