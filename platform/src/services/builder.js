@@ -53,6 +53,29 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
   var active = false;
   var hoveredEl = null;
   var hoverBox = null;
+  var errorToast = null;
+  var errorDetails = '';
+
+  function showRuntimeErrorToast(details) {
+    errorDetails = String(details || 'Unknown app error').slice(0, 3000);
+    if (!errorToast) {
+      errorToast = document.createElement('div');
+      errorToast.id = '__44gen_error_toast__';
+      errorToast.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:100000;max-width:360px;background:#fff;color:#1f2937;border:1px solid rgba(239,68,68,0.25);box-shadow:0 20px 60px rgba(15,23,42,0.22);border-radius:14px;padding:14px;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+      errorToast.innerHTML = '<div style="display:flex;gap:10px;align-items:flex-start;"><div style="width:28px;height:28px;border-radius:999px;background:rgba(239,68,68,0.12);color:#ef4444;display:flex;align-items:center;justify-content:center;font-weight:900;flex-shrink:0;">!</div><div style="min-width:0;flex:1;"><div style="font-size:14px;font-weight:800;margin-bottom:4px;">Something needs a quick fix</div><div style="font-size:12px;line-height:1.45;color:#64748b;margin-bottom:10px;">The preview hit an app error. 44Gen can inspect the details and repair it.</div><details style="font-size:11px;color:#64748b;margin-bottom:10px;"><summary style="cursor:pointer;font-weight:700;color:#334155;">Details</summary><pre id="__44gen_error_details__" style="white-space:pre-wrap;max-height:120px;overflow:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin:7px 0 0;"></pre></details><div style="display:flex;gap:8px;"><button id="__44gen_fix_error__" style="border:0;border-radius:8px;background:#BC6045;color:white;font-size:12px;font-weight:800;padding:7px 10px;cursor:pointer;">Fix it</button><button id="__44gen_dismiss_error__" style="border:1px solid #e2e8f0;border-radius:8px;background:white;color:#475569;font-size:12px;font-weight:700;padding:7px 10px;cursor:pointer;">Dismiss</button></div></div></div>';
+      document.body.appendChild(errorToast);
+      document.getElementById('__44gen_fix_error__').addEventListener('click', function() {
+        window.parent.postMessage({ type: '__44gen_runtime_error_fix__', details: errorDetails, url: location.href }, '*');
+      });
+      document.getElementById('__44gen_dismiss_error__').addEventListener('click', function() {
+        if (errorToast) errorToast.style.display = 'none';
+      });
+    }
+    var detailsEl = document.getElementById('__44gen_error_details__');
+    if (detailsEl) detailsEl.textContent = errorDetails;
+    errorToast.style.display = 'block';
+    window.parent.postMessage({ type: '__44gen_runtime_error__', details: errorDetails, url: location.href }, '*');
+  }
 
   function getPath(el) {
     var path = [];
@@ -149,6 +172,15 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
       document.removeEventListener('click', onClick, true);
       hideHoverBox();
     }
+  });
+
+  window.addEventListener('error', function(e) {
+    showRuntimeErrorToast((e.message || 'Runtime error') + '\\n' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\\n' + (e.error && e.error.stack ? e.error.stack : ''));
+  });
+
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason;
+    showRuntimeErrorToast('Unhandled promise rejection\\n' + (reason && reason.stack ? reason.stack : reason && reason.message ? reason.message : String(reason || 'Unknown rejection')));
   });
 })();
 </script>

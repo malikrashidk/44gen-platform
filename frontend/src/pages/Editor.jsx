@@ -97,6 +97,8 @@ export default function Editor() {
   const streamEventSeenRef = useRef(false)
   const streamWatchdogRef = useRef(null)
   const buildStartedRef = useRef(false) // prevent double-approve
+  const lastBuildPromptRef = useRef('')
+  const lastBuildPlanRef = useRef(null)
   const pollIntervalRef = useRef(null)
   const processedEventCountRef = useRef(0)
 
@@ -493,6 +495,37 @@ export default function Editor() {
     'Authorization': `Bearer ${sessionRef.current?.access_token}`
   })
 
+  const friendlyErrorMessage = (details) => {
+    const raw = String(details || '')
+    if (/insufficient credits/i.test(raw)) return 'You need more credits before I can continue this build.'
+    if (/timed out/i.test(raw)) return 'The build took longer than expected. You can retry it now.'
+    if (/rate|429|busy|high demand|unavailable/i.test(raw)) return 'The AI service is busy for a moment. You can retry safely.'
+    if (/failed to fetch|network|eventsource/i.test(raw)) return 'The live connection dropped, but you can retry or let me fix the build.'
+    return 'Something needs a quick fix. I can retry or repair it for you.'
+  }
+
+  const makeErrorContent = (error, fallbackPrompt = '') => {
+    if (typeof error === 'object' && error?.message) {
+      return {
+        message: friendlyErrorMessage(error.details || error.message),
+        details: error.details || error.message,
+        retryPrompt: error.retryPrompt || fallbackPrompt || lastBuildPromptRef.current,
+        retryAction: error.retryAction || 'build',
+        retryable: error.retryable !== false,
+        fixable: error.fixable !== false
+      }
+    }
+    const details = String(error || 'Unknown error')
+    return {
+      message: friendlyErrorMessage(details),
+      details,
+      retryPrompt: fallbackPrompt || lastBuildPromptRef.current,
+      retryAction: 'build',
+      retryable: true,
+      fixable: true
+    }
+  }
+
   const connectToStream = useCallback((jobId) => {
     if (streamFinishedRef.current) return
     if (esRef.current) esRef.current.close()
@@ -713,11 +746,11 @@ export default function Editor() {
         stopPolling()
         buildStartedRef.current = false
         buildStreamMessageIdRef.current = null
-        addMessage('assistant', event.message, 'error')
+        addMessage('assistant', makeErrorContent(event), 'error')
         setStage('idle')
         setLoading(false)
         reconnectAttemptsRef.current = 0
-        addDetail('❌', event.message, '#ef4444')
+        addDetail('❌', event.message || 'Build issue', '#ef4444')
         if (esRef.current) esRef.current.close()
         break
     }
@@ -746,11 +779,14 @@ export default function Editor() {
 
       if (clarifyData.error) {
         setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', {
+        addMessage('assistant', makeErrorContent({
           message: clarifyData.error,
+          details: clarifyData.error,
           retryPrompt: userPrompt,
-          retryable: clarifyData.retryable !== false
-        }, 'error')
+          retryAction: 'prompt',
+          retryable: clarifyData.retryable !== false,
+          fixable: false
+        }, userPrompt), 'error')
         setStage('idle')
         setLoading(false)
         return
@@ -802,11 +838,14 @@ export default function Editor() {
 
       if (planData.error) {
         setMessages(prev => prev.filter(m => m.type !== 'status'))
-        addMessage('assistant', {
+        addMessage('assistant', makeErrorContent({
           message: planData.error,
+          details: planData.error,
           retryPrompt: userPrompt,
-          retryable: planData.retryable !== false
-        }, 'error')
+          retryAction: 'prompt',
+          retryable: planData.retryable !== false,
+          fixable: false
+        }, userPrompt), 'error')
         setStage('idle')
         setLoading(false)
         return
@@ -821,14 +860,33 @@ export default function Editor() {
       ])
     } catch {
       setMessages(prev => prev.filter(m => m.type !== 'status'))
-      addMessage('assistant', {
+      addMessage('assistant', makeErrorContent({
         message: 'Something went wrong. Try again.',
+        details: 'Request failed before the build could start.',
         retryPrompt: userPrompt,
-        retryable: true
-      }, 'error')
+        retryAction: 'prompt',
+        retryable: true,
+        fixable: false
+      }, userPrompt), 'error')
       setStage('idle')
     }
     setLoading(false)
+  }
+
+  const handleFixError = async (error) => {
+    if (loading) return
+    const details = typeof error === 'string' ? error : (error?.details || error?.message || 'Unknown app issue')
+    const fixPrompt = `Fix this app issue automatically and keep the product fully working.
+
+Error details:
+${String(details).slice(0, 3000)}
+
+Requirements:
+- Find the root cause and repair the generated app.
+- Preserve all existing working features and files.
+- If this is a runtime issue, make the affected user flow work with React state.
+- Do not leave dead buttons, placeholder actions, or broken navigation.`
+    await startDirectBuild(fixPrompt)
   }
 
   // Visual editor: listen for element selection from iframe
@@ -843,10 +901,25 @@ export default function Editor() {
         setEditFontSize(el.styles?.fontSize || '')
         setVisualPanel({ visible: true })
       }
+      if (e.data?.type === '__44gen_runtime_error__') {
+        const content = makeErrorContent({
+          message: 'Runtime error in preview',
+          details: e.data.details,
+          retryable: true,
+          fixable: true
+        })
+        setMessages(prev => {
+          if (prev.some(m => m.type === 'error' && m.content?.details === content.details)) return prev
+          return [...prev, { id: Date.now() + Math.random(), role: 'assistant', type: 'error', content }]
+        })
+      }
+      if (e.data?.type === '__44gen_runtime_error_fix__') {
+        handleFixError({ details: e.data.details })
+      }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [])
+  }, [loading])
 
   const toggleVisualEdit = () => {
     if (!previewUrl) return
@@ -1060,7 +1133,14 @@ ${answerText}`
       const planData = await res.json()
       setMessages(prev => prev.filter(m => m.type !== 'status'))
       if (planData.error) {
-        addMessage('assistant', { message: planData.error, retryPrompt: finalPrompt, retryable: planData.retryable !== false }, 'error')
+        addMessage('assistant', makeErrorContent({
+          message: planData.error,
+          details: planData.error,
+          retryPrompt: finalPrompt,
+          retryAction: 'prompt',
+          retryable: planData.retryable !== false,
+          fixable: false
+        }, finalPrompt), 'error')
         setStage('idle')
       } else {
         buildStartedRef.current = false
@@ -1070,7 +1150,14 @@ ${answerText}`
       }
     } catch {
       setMessages(prev => prev.filter(m => m.type !== 'status'))
-      addMessage('assistant', { message: 'Something went wrong. Try again.', retryPrompt: finalPrompt, retryable: true }, 'error')
+      addMessage('assistant', makeErrorContent({
+        message: 'Something went wrong. Try again.',
+        details: 'Request failed before the plan could finish.',
+        retryPrompt: finalPrompt,
+        retryAction: 'prompt',
+        retryable: true,
+        fixable: false
+      }, finalPrompt), 'error')
       setStage('idle')
     }
     setLoading(false)
@@ -1079,6 +1166,8 @@ ${answerText}`
   const startDirectBuild = async (buildPrompt, imageData = null, referenceUrl = null) => {
     if (buildStartedRef.current) return
     buildStartedRef.current = true
+    lastBuildPromptRef.current = buildPrompt
+    lastBuildPlanRef.current = null
     setLoading(true)
     setStage('building')
     setDetailsLog([])
@@ -1104,7 +1193,14 @@ ${answerText}`
       })
       const { job_id, error } = await res.json()
       if (error) {
-        addMessage('assistant', error, 'error')
+        addMessage('assistant', makeErrorContent({
+          message: error,
+          details: error,
+          retryPrompt: buildPrompt,
+          retryAction: 'build',
+          retryable: true,
+          fixable: true
+        }, buildPrompt), 'error')
         buildStartedRef.current = false
         setStage('idle')
         setLoading(false)
@@ -1114,8 +1210,15 @@ ${answerText}`
       reconnectAttemptsRef.current = 0
       streamFinishedRef.current = false
       connectToStream(job_id)
-    } catch {
-      addMessage('assistant', 'Failed to start build.', 'error')
+    } catch (err) {
+      addMessage('assistant', makeErrorContent({
+        message: 'Failed to start build.',
+        details: err?.message || 'Network request failed while starting the build.',
+        retryPrompt: buildPrompt,
+        retryAction: 'build',
+        retryable: true,
+        fixable: true
+      }, buildPrompt), 'error')
       buildStartedRef.current = false
       setStage('idle')
       setLoading(false)
@@ -1125,6 +1228,8 @@ ${answerText}`
   const startBuild = async (buildPlan) => {
     if (buildStartedRef.current) return
     buildStartedRef.current = true
+    lastBuildPromptRef.current = buildPlan?.understanding || ''
+    lastBuildPlanRef.current = buildPlan
     setLoading(true)
     setStage('building')
     setDetailsLog([])
@@ -1149,7 +1254,14 @@ ${answerText}`
       const { job_id, error } = await res.json()
 
       if (error) {
-        addMessage('assistant', error, 'error')
+        addMessage('assistant', makeErrorContent({
+          message: error,
+          details: error,
+          retryPrompt: buildPlan?.understanding,
+          retryAction: 'plan',
+          retryable: true,
+          fixable: true
+        }, buildPlan?.understanding), 'error')
         buildStartedRef.current = false
         setStage('idle'); setLoading(false); return
       }
@@ -1164,8 +1276,15 @@ ${answerText}`
       reconnectAttemptsRef.current = 0
       streamFinishedRef.current = false
       connectToStream(job_id)
-    } catch {
-      addMessage('assistant', 'Failed to start build.', 'error')
+    } catch (err) {
+      addMessage('assistant', makeErrorContent({
+        message: 'Failed to start build.',
+        details: err?.message || 'Network request failed while starting the build.',
+        retryPrompt: buildPlan?.understanding,
+        retryAction: 'plan',
+        retryable: true,
+        fixable: true
+      }, buildPlan?.understanding), 'error')
       buildStartedRef.current = false
       setStage('idle'); setLoading(false)
     }
@@ -1202,6 +1321,15 @@ ${answerText}`
   }
 
   const handleRetry = () => {
+    if (loading) return
+    if (lastBuildPlanRef.current) {
+      startBuild(lastBuildPlanRef.current)
+      return
+    }
+    if (lastBuildPromptRef.current) {
+      startDirectBuild(lastBuildPromptRef.current)
+      return
+    }
     setStage('idle')
     setLoading(false)
   }
@@ -1314,20 +1442,40 @@ ${answerText}`
 
     if (msg.type === 'error') return (
       (() => {
-        const error = typeof msg.content === 'string' ? { message: msg.content, retryable: true } : msg.content
+        const error = makeErrorContent(msg.content)
         return (
-          <div key={msg.id} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
-            <div style={{ display: 'flex', gap: 8, color: '#f87171', marginBottom: 8 }}>
+          <div key={msg.id} style={{ background: d ? 'rgba(188,96,69,0.12)' : 'rgba(188,96,69,0.08)', border: '1px solid rgba(188,96,69,0.22)', borderRadius: 12, padding: '11px 12px', fontSize: 13 }}>
+            <div style={{ display: 'flex', gap: 8, color: text, marginBottom: 8, lineHeight: 1.45 }}>
               <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
-              {error.message}
+              <span>{error.message}</span>
             </div>
-            {error.retryable && (
-              <button onClick={() => error.retryPrompt ? submitPromptText(error.retryPrompt) : handleRetry()}
-                disabled={loading}
-                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', padding: '4px 10px', borderRadius: 6, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}>
-                <RefreshCcw size={11} /> Try again
-              </button>
+            {error.details && (
+              <details style={{ marginBottom: 9, color: muted, fontSize: 12 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Details</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', margin: '7px 0 0', padding: 8, borderRadius: 8, background: d ? '#101010' : '#fff', border: `1px solid ${border}`, fontFamily: 'monospace', fontSize: 11 }}>{error.details}</pre>
+              </details>
             )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {error.retryable && (
+                <button onClick={() => {
+                  if (error.retryAction === 'prompt' && error.retryPrompt) submitPromptText(error.retryPrompt)
+                  else if (error.retryAction === 'plan' && lastBuildPlanRef.current) startBuild(lastBuildPlanRef.current)
+                  else if (error.retryPrompt) startDirectBuild(error.retryPrompt)
+                  else handleRetry()
+                }}
+                  disabled={loading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#fff', background: '#BC6045', border: '1px solid rgba(188,96,69,0.25)', padding: '6px 10px', borderRadius: 7, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1, fontWeight: 800 }}>
+                  <RefreshCcw size={11} /> Retry
+                </button>
+              )}
+              {error.fixable && (
+                <button onClick={() => handleFixError(error)}
+                  disabled={loading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: text, background: surface, border: `1px solid ${border}`, padding: '6px 10px', borderRadius: 7, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1, fontWeight: 800 }}>
+                  <Sparkles size={11} /> Fix it
+                </button>
+              )}
+            </div>
           </div>
         )
       })()

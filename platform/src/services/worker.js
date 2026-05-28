@@ -127,6 +127,14 @@ function isRepairableBuildError(err) {
   return /vite|esbuild|transform failed|src\/[^\s:)]+|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
 }
 
+function friendlyBuildError(err) {
+  const message = String(err?.message || err || '')
+  if (/insufficient credits/i.test(message)) return 'You need more credits before I can continue this build.'
+  if (/timed out/i.test(message)) return 'The build took too long and stopped. Please try again.'
+  if (/rate|429|busy|high demand|unavailable/i.test(message)) return 'The AI service is busy right now. Please try again in a moment.'
+  return 'I hit a build issue while preparing your app. I can retry or fix it for you.'
+}
+
 // Save all generated files to project_files table
 async function saveProjectFiles(projectId, files) {
   const safeFiles = sanitizeGeneratedFiles(files)
@@ -197,7 +205,12 @@ async function runJob(jobId) {
     await supabase.from('build_jobs')
       .update({ status: 'failed', error: 'Job timed out after 10 minutes' })
       .eq('id', jobId)
-    emit('error', { message: 'Build timed out. Please try again.' })
+    emit('error', {
+      message: 'The build took too long and stopped. Please try again.',
+      details: 'Job timed out after 10 minutes',
+      retryable: true,
+      fixable: true
+    })
   }, JOB_TIMEOUT_MS)
 
   try {
@@ -387,6 +400,11 @@ async function runJob(jobId) {
     await supabase.from('build_jobs')
       .update({ status: 'failed', error: err.message }).eq('id', jobId)
     await flushPersist(jobId)
-    emit('error', { message: err.message })
+    emit('error', {
+      message: friendlyBuildError(err),
+      details: err.message,
+      retryable: true,
+      fixable: true
+    })
   }
 }
