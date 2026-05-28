@@ -18,8 +18,6 @@ router.post('/', requireAuth, async (req, res) => {
   if (!prompt?.trim()) return res.status(400).json({ error: 'Prompt is required' })
   if (projectId && !isValidUUID(projectId))
     return res.status(400).json({ error: 'Invalid project ID' })
-  if (projectId && !isValidUUID(projectId))
-    return res.status(400).json({ error: 'Invalid project ID' })
 
   try {
     let project = null
