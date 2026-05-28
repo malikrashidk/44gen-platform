@@ -40,7 +40,10 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
   if (faviconEmoji) {
     faviconTag = `<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>${faviconEmoji}</text></svg>" />`
   } else if (faviconUrl) {
-    faviconTag = `<link rel="icon" href="${faviconUrl}" />`
+    // FIX #7: Sanitize faviconUrl — encode any characters that could break out of the HTML attribute
+    // (already sanitized upstream in build.js sanitizeFaviconUrl, but defence in depth here)
+    const safeFaviconUrl = String(faviconUrl).replace(/['"<>&]/g, c => ({''':'%27','"':'%22','<':'%3C','>':'%3E','&':'%26'}[c]))
+    faviconTag = `<link rel="icon" href="${safeFaviconUrl}" />`
   } else {
     faviconTag = `<link rel="icon" href="${DEFAULT_FAVICON}" />`
   }
@@ -293,6 +296,8 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
 async function ensureBuildTemplate(onProgress) {
   if (!templateReadyPromise) {
     templateReadyPromise = createOrUpdateTemplate(onProgress).catch((err) => {
+      // FIX #12: Log when the promise resets so failures are visible in PM2 logs
+      console.error('[Builder] Build template creation failed — will retry on next build:', err.message)
       templateReadyPromise = null
       throw err
     })
@@ -345,7 +350,9 @@ function prepareProjectDir(projectDir, subdomain) {
   const projectNodeModules = path.join(projectDir, 'node_modules')
   try {
     fs.symlinkSync(templateNodeModules, projectNodeModules, 'dir')
-  } catch {
+  } catch (symlinkErr) {
+    // FIX #13: Log this — cpSync copies ~200MB and 3 concurrent falls could fill the disk fast
+    console.warn(`[Builder] node_modules symlink failed for ${path.basename(projectDir)}, falling back to full copy (~200MB). Error: ${symlinkErr.message}`)
     fs.cpSync(templateNodeModules, projectNodeModules, { recursive: true })
   }
 }
@@ -408,3 +415,4 @@ function runCommand(cmd, args, cwd, onLine) {
     proc.on('error', reject)
   })
 }
+
