@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase.js'
 import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemini.js'
 import { buildAndDeploy } from './builder.js'
 import { sanitizeGeneratedFiles } from './fileSafety.js'
+import { runRuntimeQa } from './runtimeQa.js'
 
 // ⚠️  FIX #34 (doc): jobStore and sseConnections (in build.js) are module-level Maps.
 // This REQUIRES PM2 single-process mode (not cluster mode).
@@ -333,6 +334,19 @@ async function runJob(jobId) {
           }
         )
         await purgeCloudflareCache(subdomain)
+
+        // Wire runtimeQa — run a headless click-through after successful build.
+        // Non-blocking: QA failures are logged but never abort the build.
+        runRuntimeQa(`https://${subdomain}.44gen.com`).then(result => {
+          if (result?.issues?.length) {
+            console.warn(`[Worker] Runtime QA found ${result.issues.length} issue(s) on ${subdomain}:`, result.issues.map(i => i.message).join(', '))
+          } else {
+            console.log(`[Worker] Runtime QA passed for ${subdomain}`)
+          }
+        }).catch(err => {
+          console.warn(`[Worker] Runtime QA skipped (non-fatal):`, err.message)
+        })
+
         break
       } catch (buildErr) {
         if (attempt >= MAX_REPAIR_ATTEMPTS || !isRepairableBuildError(buildErr)) throw buildErr
