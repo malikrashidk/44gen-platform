@@ -1,166 +1,115 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Mail, MessageCircle, ArrowRight } from 'lucide-react'
+import { Mail, MessageCircle, ArrowRight, Check } from 'lucide-react'
+
+const O = { grad: 'linear-gradient(135deg, #FF6B00 0%, #FF9A3C 100%)', text: { background: 'linear-gradient(135deg, #FF6B00 0%, #FDBA74 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }, glow: 'rgba(255,107,0,0.35)' }
+const B = { subtle: 'rgba(255,255,255,0.06)', orange: 'rgba(255,107,0,0.25)' }
 
 export default function Contact() {
   const [form, setForm] = useState({ name: '', email: '', subject: '', message: '' })
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [focus, setFocus] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.name || !form.email || !form.message) return
     setLoading(true)
-    // Simulate send — replace with actual email service
     await new Promise(r => setTimeout(r, 1200))
     setSent(true)
     setLoading(false)
   }
 
-  return (
-    <div style={{ fontFamily: "'DM Sans', 'Inter', sans-serif", background: '#fafafa', minHeight: '100vh' }}>
+  const inputStyle = (field) => ({
+    width: '100%', padding: '11px 14px', borderRadius: 10,
+    border: `1px solid ${focus === field ? B.orange : B.subtle}`,
+    background: focus === field ? 'rgba(255,107,0,0.04)' : 'rgba(255,255,255,0.03)',
+    color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box',
+    transition: 'border-color 0.2s, background 0.2s', fontFamily: 'inherit',
+  })
 
-      {/* Navbar */}
-      <nav style={{
-        position: 'sticky', top: 0, zIndex: 100, background: 'rgba(250,250,250,0.9)',
-        backdropFilter: 'blur(16px)', borderBottom: '1px solid #ebe9e4',
-        padding: '0 24px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-      }}>
-        <Link to="/" style={{ textDecoration: 'none' }}>
-          <div style={{ fontWeight: 800, fontSize: 22, color: '#0f0f14', letterSpacing: '-0.5px' }}>
-            44<span style={{ color: '#ff3cac' }}>Gen</span>
-          </div>
+  return (
+    <div style={{ fontFamily: "'Sora','DM Sans',system-ui,sans-serif", background: '#050505', minHeight: '100vh', color: '#fff' }}>
+      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(5,5,5,0.9)', backdropFilter: 'blur(24px)', borderBottom: `1px solid ${B.subtle}`, padding: '0 clamp(20px,4vw,48px)', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: O.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#fff' }}>44</div>
+          <span style={{ fontWeight: 800, fontSize: 18, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
         </Link>
-        <div style={{ display: 'flex', gap: 24 }}>
-          {[{ label: 'Pricing', to: '/pricing' }, { label: 'Log in', to: '/auth' }].map(l => (
-            <Link key={l.label} to={l.to} style={{ color: '#6b6b7b', fontSize: 14, fontWeight: 500, textDecoration: 'none' }}>{l.label}</Link>
-          ))}
-        </div>
+        <Link to="/" style={{ color: 'rgba(255,255,255,0.38)', fontSize: 14, textDecoration: 'none', transition: 'color 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = '#fff'} onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.38)'}>← Back home</Link>
       </nav>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '80px 24px' }}>
-
-        {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 64 }}>
-          <div style={{ fontSize: 13, color: '#ff3cac', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>Contact</div>
-          <h1 style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 800, color: '#0f0f14', letterSpacing: '-2px', margin: '0 0 16px' }}>
-            Get in touch
+      <div style={{ maxWidth: 960, margin: '0 auto', padding: 'clamp(60px,8vw,100px) clamp(20px,5vw,48px)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'clamp(40px,6vw,80px)', alignItems: 'start' }}>
+        {/* Left */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#FF7A18', marginBottom: 16 }}>Contact</div>
+          <h1 style={{ fontSize: 'clamp(32px,4vw,52px)', fontWeight: 900, color: '#fff', letterSpacing: '-2px', margin: '0 0 16px', lineHeight: 1.0 }}>
+            Get in <span style={O.text}>touch</span>
           </h1>
-          <p style={{ color: '#6b6b7b', fontSize: 17, maxWidth: 420, margin: '0 auto' }}>
-            Have a question, feedback, or need help? We're here for you.
+          <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 16, lineHeight: 1.75, marginBottom: 44, maxWidth: 340 }}>
+            Have a question, feature request, or just want to say hello? We read every message.
           </p>
+          {[
+            { icon: <Mail size={18}/>, title: 'Email', val: 'support@44gen.com', href: 'mailto:support@44gen.com' },
+            { icon: <MessageCircle size={18}/>, title: 'Response time', val: 'Usually within 24 hours', href: null },
+          ].map((item, i) => (
+            <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 24 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,107,0,0.1)', border: '1px solid rgba(255,107,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF7A18', flexShrink: 0 }}>{item.icon}</div>
+              <div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.28)', fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{item.title}</div>
+                {item.href ? <a href={item.href} style={{ fontSize: 15, color: '#fff', fontWeight: 600, textDecoration: 'none' }}>{item.val}</a> : <div style={{ fontSize: 15, color: '#fff', fontWeight: 600 }}>{item.val}</div>}
+              </div>
+            </div>
+          ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 40, alignItems: 'start' }}>
-
-          {/* Left — contact info */}
-          <div>
-            <div style={{ background: '#fff', borderRadius: 20, padding: '32px', border: '1px solid #ebe9e4', marginBottom: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,60,172,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3cac', marginBottom: 16 }}>
-                <Mail size={20} />
+        {/* Right */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${B.subtle}`, borderRadius: 20, padding: '32px 28px' }}>
+          {sent ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                <Check size={24} color="#4ade80"/>
               </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f0f14', marginBottom: 6 }}>Email us</div>
-              <div style={{ fontSize: 14, color: '#6b6b7b', lineHeight: 1.6 }}>
-                For support, billing, or partnerships — we usually reply within 24 hours.
-              </div>
-              <a href="mailto:hello@44gen.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 14, color: '#ff3cac', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
-                hello@44gen.com <ArrowRight size={14} />
-              </a>
+              <h3 style={{ fontSize: 20, fontWeight: 700, color: '#fff', margin: '0 0 8px' }}>Message sent!</h3>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.38)', margin: 0 }}>We'll get back to you within 24 hours.</p>
             </div>
-
-            <div style={{ background: '#fff', borderRadius: 20, padding: '32px', border: '1px solid #ebe9e4' }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,60,172,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3cac', marginBottom: 16 }}>
-                <MessageCircle size={20} />
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#0f0f14', marginBottom: 6 }}>Common topics</div>
-              {['Billing & credits', 'Build failures', 'Feature requests', 'Enterprise plans'].map(t => (
-                <div key={t} style={{ fontSize: 14, color: '#6b6b7b', padding: '8px 0', borderBottom: '1px solid #f5f2ee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  {t} <ArrowRight size={13} color="#c4bef7" />
+          ) : (
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {[
+                { key: 'name', label: 'Your name', type: 'text', ph: 'Alex Rivera', req: true },
+                { key: 'email', label: 'Email address', type: 'email', ph: 'you@example.com', req: true },
+                { key: 'subject', label: 'Subject (optional)', type: 'text', ph: 'Feature request, question...', req: false },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.38)', display: 'block', marginBottom: 6 }}>{f.label}</label>
+                  <input type={f.type} placeholder={f.ph} value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                    onFocus={() => setFocus(f.key)} onBlur={() => setFocus('')}
+                    style={inputStyle(f.key)} required={f.req} />
                 </div>
               ))}
-            </div>
-          </div>
-
-          {/* Right — form */}
-          <div style={{ background: '#fff', borderRadius: 24, padding: '40px 36px', border: '1px solid #ebe9e4', boxShadow: '0 8px 40px rgba(0,0,0,0.04)' }}>
-            {sent ? (
-              <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <div style={{ fontSize: 48, marginBottom: 20 }}>✅</div>
-                <h3 style={{ fontSize: 22, fontWeight: 700, color: '#0f0f14', margin: '0 0 12px' }}>Message sent!</h3>
-                <p style={{ color: '#6b6b7b', fontSize: 15, margin: 0 }}>We'll get back to you within 24 hours.</p>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.38)', display: 'block', marginBottom: 6 }}>Message</label>
+                <textarea placeholder="Tell us what's on your mind..." value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))}
+                  onFocus={() => setFocus('message')} onBlur={() => setFocus('')}
+                  rows={5} style={{ ...inputStyle('message'), resize: 'vertical', display: 'block' }} required />
               </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                <h2 style={{ fontSize: 22, fontWeight: 700, color: '#0f0f14', margin: '0 0 28px' }}>Send a message</h2>
-                {[
-                  { label: 'Your name', key: 'name', type: 'text', placeholder: 'John Smith' },
-                  { label: 'Email address', key: 'email', type: 'email', placeholder: 'john@example.com' },
-                  { label: 'Subject', key: 'subject', type: 'text', placeholder: 'What\'s this about?' },
-                ].map(field => (
-                  <div key={field.key} style={{ marginBottom: 20 }}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#4b4b5a', marginBottom: 8 }}>{field.label}</label>
-                    <input
-                      type={field.type}
-                      placeholder={field.placeholder}
-                      value={form[field.key]}
-                      onChange={e => setForm(prev => ({ ...prev, [field.key]: e.target.value }))}
-                      style={{
-                        width: '100%', padding: '12px 16px', borderRadius: 12,
-                        border: '1px solid #e0dde8', fontSize: 15, color: '#0f0f14',
-                        background: '#fafafa', outline: 'none', boxSizing: 'border-box',
-                        transition: 'border-color 0.2s'
-                      }}
-                      onFocus={e => e.target.style.borderColor = '#ff3cac'}
-                      onBlur={e => e.target.style.borderColor = '#e0dde8'}
-                    />
-                  </div>
-                ))}
-                <div style={{ marginBottom: 28 }}>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#4b4b5a', marginBottom: 8 }}>Message</label>
-                  <textarea
-                    placeholder="Tell us more..."
-                    rows={5}
-                    value={form.message}
-                    onChange={e => setForm(prev => ({ ...prev, message: e.target.value }))}
-                    style={{
-                      width: '100%', padding: '12px 16px', borderRadius: 12,
-                      border: '1px solid #e0dde8', fontSize: 15, color: '#0f0f14',
-                      background: '#fafafa', outline: 'none', resize: 'vertical',
-                      fontFamily: 'inherit', boxSizing: 'border-box', transition: 'border-color 0.2s'
-                    }}
-                    onFocus={e => e.target.style.borderColor = '#ff3cac'}
-                    onBlur={e => e.target.style.borderColor = '#e0dde8'}
-                  />
-                </div>
-                <button type="submit" disabled={loading} style={{
-                  width: '100%', padding: '14px 0', borderRadius: 12,
-                  background: loading ? '#b8b2f7' : '#ff3cac', color: '#fff',
-                  border: 'none', fontSize: 15, fontWeight: 700, cursor: loading ? 'wait' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  transition: 'all 0.2s'
-                }}>
-                  {loading ? 'Sending...' : <><span>Send message</span><ArrowRight size={16} /></>}
-                </button>
-              </form>
-            )}
-          </div>
+              <button type="submit" disabled={loading} style={{ padding: '12px 0', borderRadius: 10, border: 'none', background: O.grad, color: '#fff', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: `0 0 28px ${O.glow}`, fontFamily: 'inherit', marginTop: 4 }}>
+                {loading ? <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }}/> : <>Send message <ArrowRight size={15}/></>}
+              </button>
+            </form>
+          )}
         </div>
       </div>
 
-      {/* Footer */}
-      <footer style={{ background: '#06060a', borderTop: '1px solid rgba(255,255,255,0.06)', padding: '40px 24px', marginTop: 80 }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <Link to="/" style={{ textDecoration: 'none' }}>
-            <div style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>44<span style={{ color: '#ff3cac' }}>Gen</span></div>
-          </Link>
-          <div style={{ display: 'flex', gap: 24 }}>
-            {[{ label: 'Home', to: '/' }, { label: 'Pricing', to: '/pricing' }, { label: 'Log in', to: '/auth' }].map(l => (
-              <Link key={l.label} to={l.to} style={{ color: 'rgba(255,255,255,0.3)', fontSize: 14, textDecoration: 'none' }}>{l.label}</Link>
-            ))}
-          </div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)' }}>© 2026 44Gen</div>
+      <footer style={{ borderTop: `1px solid ${B.subtle}`, padding: '28px clamp(20px,5vw,48px)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <span style={{ color: 'rgba(255,255,255,0.18)', fontSize: 13 }}>© 2026 44gen. All rights reserved.</span>
+        <div style={{ display: 'flex', gap: 20 }}>
+          {[{ l:'Privacy', to:'/privacy' },{ l:'Terms', to:'/terms' }].map(lk => <Link key={lk.l} to={lk.to} style={{ color:'rgba(255,255,255,0.28)', fontSize:13, textDecoration:'none', transition:'color 0.2s' }} onMouseEnter={e=>e.target.style.color='#fff'} onMouseLeave={e=>e.target.style.color='rgba(255,255,255,0.28)'}>{lk.l}</Link>)}
         </div>
       </footer>
+
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800;900&display=swap'); *{box-sizing:border-box} @keyframes spin{to{transform:rotate(360deg)}}
+        @media(max-width:700px){ div[style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr !important} }
+      `}</style>
     </div>
   )
 }
