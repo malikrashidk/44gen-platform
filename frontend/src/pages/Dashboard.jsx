@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Plus, Zap, Clock, Trash2, ExternalLink, LogOut, Sun, Moon, Sparkles, ChevronRight } from 'lucide-react'
 
+const API = import.meta.env.VITE_API_URL
+
 function DeleteModal({ projectName, onConfirm, onCancel }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
@@ -26,7 +28,7 @@ function DeleteModal({ projectName, onConfirm, onCancel }) {
 }
 
 export default function Dashboard() {
-  const { user, profile, signOut, fetchProfile } = useAuth()
+  const { user, profile, session, signOut, fetchProfile } = useAuth()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -35,6 +37,7 @@ export default function Dashboard() {
     const saved = localStorage.getItem('44gen-dark-mode')
     return saved !== null ? saved === 'true' : true
   })
+  const [billingLoading, setBillingLoading] = useState(false)
   const navigate = useNavigate()
 
   const d = darkMode
@@ -93,6 +96,33 @@ export default function Dashboard() {
     setProjects(prev => prev.filter(p => p.id !== id))
   }
 
+  const openBilling = async () => {
+    if (!session?.access_token) return
+    if ((profile?.plan || 'free') === 'free') {
+      navigate('/pricing')
+      return
+    }
+
+    setBillingLoading(true)
+    try {
+      const res = await fetch(`${API}/api/billing/portal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not open billing portal')
+      window.location.href = data.url
+    } catch (err) {
+      console.error('Failed to open billing:', err.message)
+      navigate('/pricing')
+    } finally {
+      setBillingLoading(false)
+    }
+  }
+
   const statusBadge = (status) => {
     if (status === 'deployed') return { bg: 'rgba(16,185,129,0.1)', color: '#10b981' }
     if (status === 'building') return { bg: 'rgba(245,158,11,0.1)', color: '#f59e0b' }
@@ -121,6 +151,10 @@ export default function Dashboard() {
               <span style={{ fontWeight: 600 }}>{profile?.credits ?? 0}</span>
               <span style={{ color: muted }}>credits</span>
             </div>
+            <button onClick={openBilling} disabled={billingLoading}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: text, fontWeight: 700, cursor: billingLoading ? 'default' : 'pointer', textTransform: 'capitalize' }}>
+              {billingLoading ? 'Opening...' : (profile?.plan || 'free')}
+            </button>
             <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </div>

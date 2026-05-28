@@ -12,6 +12,7 @@ import projectsRoute from './routes/projects.js'
 import clarifyRoute from './routes/clarify.js'
 import imagesRoute from './routes/images.js'
 import githubRoute from './routes/github.js'
+import { billingRouter, polarWebhookHandler } from './routes/billing.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -23,7 +24,9 @@ app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || false,
   credentials: true
 }))
+
 app.use(express.json({ limit: '20mb' }))
+app.post('/api/billing/webhook', polarWebhookHandler)
 
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -50,6 +53,7 @@ app.use('/api/projects', projectsRoute)
 app.use('/api/clarify', planLimiter, clarifyRoute)
 app.use('/api/images', imagesRoute)
 app.use('/api/github', githubRoute)
+app.use('/api/billing', billingRouter)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
 

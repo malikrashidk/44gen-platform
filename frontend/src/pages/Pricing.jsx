@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Check, ArrowRight, Zap } from 'lucide-react'
+import { Check, ArrowRight, Zap, Loader2 } from 'lucide-react'
+
+const API = import.meta.env.VITE_API_URL
 
 const PLANS = [
   {
@@ -18,6 +20,7 @@ const PLANS = [
     ],
     cta: 'Start for free',
     featured: false,
+    id: 'free',
   },
   {
     name: 'Pro',
@@ -34,6 +37,7 @@ const PLANS = [
     ],
     cta: 'Get started',
     featured: true,
+    id: 'pro',
   },
   {
     name: 'Business',
@@ -50,6 +54,7 @@ const PLANS = [
     ],
     cta: 'Get started',
     featured: false,
+    id: 'business',
   },
 ]
 
@@ -82,10 +87,65 @@ const FAQS = [
 
 export default function Pricing() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, session, profile } = useAuth()
   const [openFaq, setOpenFaq] = useState(null)
+  const [checkoutPlan, setCheckoutPlan] = useState('')
+  const [billingError, setBillingError] = useState('')
 
-  const handleCTA = () => navigate(user ? '/dashboard' : '/auth')
+  const handleCTA = async (plan) => {
+    if (!user) {
+      navigate('/auth')
+      return
+    }
+    if (plan.id === 'free') {
+      navigate('/dashboard')
+      return
+    }
+    if (profile?.plan === plan.id) {
+      navigate('/dashboard')
+      return
+    }
+
+    setCheckoutPlan(plan.id)
+    setBillingError('')
+    try {
+      const res = await fetch(`${API}/api/billing/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ plan: plan.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not start checkout')
+      window.location.href = data.url
+    } catch (err) {
+      setBillingError(err.message || 'Could not start checkout')
+      setCheckoutPlan('')
+    }
+  }
+
+  const openBillingPortal = async () => {
+    if (!user) return navigate('/auth')
+    setCheckoutPlan('portal')
+    setBillingError('')
+    try {
+      const res = await fetch(`${API}/api/billing/portal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`
+        }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not open billing portal')
+      window.location.href = data.url
+    } catch (err) {
+      setBillingError(err.message || 'Could not open billing portal')
+      setCheckoutPlan('')
+    }
+  }
 
   return (
     <div style={{ fontFamily: "'DM Sans', 'Inter', sans-serif", background: '#fafafa', minHeight: '100vh' }}>
@@ -107,7 +167,7 @@ export default function Pricing() {
           ) : (
             <>
               <button onClick={() => navigate('/auth')} style={{ background: 'transparent', color: '#6b6b7b', border: '1px solid #e0dde8', padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Log in</button>
-              <button onClick={handleCTA} style={{ background: 'linear-gradient(135deg, #ff3cac 0%, #784ba0 50%, #2b86c5 100%)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Get started free</button>
+              <button onClick={() => navigate('/auth')} style={{ background: 'linear-gradient(135deg, #ff3cac 0%, #784ba0 50%, #2b86c5 100%)', color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Get started free</button>
             </>
           )}
         </div>
@@ -122,6 +182,22 @@ export default function Pricing() {
         <p style={{ color: '#6b6b7b', fontSize: 18, maxWidth: 440, margin: '0 auto' }}>
           Start free. Credits refill every month. No hidden fees.
         </p>
+        {user && profile?.plan && (
+          <div style={{ marginTop: 18, fontSize: 13, color: '#6b6b7b' }}>
+            Current plan: <strong style={{ color: '#0f0f14', textTransform: 'capitalize' }}>{profile.plan}</strong>
+            {profile.plan !== 'free' && (
+              <button onClick={openBillingPortal} disabled={checkoutPlan === 'portal'}
+                style={{ marginLeft: 10, border: '1px solid #ebe9e4', background: '#fff', borderRadius: 9, padding: '7px 10px', fontSize: 12, fontWeight: 700, color: '#0f0f14', cursor: checkoutPlan === 'portal' ? 'default' : 'pointer' }}>
+                {checkoutPlan === 'portal' ? 'Opening...' : 'Manage billing'}
+              </button>
+            )}
+          </div>
+        )}
+        {billingError && (
+          <div style={{ maxWidth: 520, margin: '18px auto 0', padding: '10px 12px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13 }}>
+            {billingError}
+          </div>
+        )}
       </div>
 
       {/* Plans */}
@@ -160,18 +236,20 @@ export default function Pricing() {
                 <p style={{ fontSize: 14, color: plan.featured ? 'rgba(255,255,255,0.65)' : '#6b6b7b', lineHeight: 1.6, margin: 0 }}>{plan.description}</p>
               </div>
 
-              <button onClick={handleCTA} style={{
+              <button onClick={() => handleCTA(plan)} disabled={Boolean(checkoutPlan)} style={{
                 width: '100%', padding: '13px 0', borderRadius: 12,
                 border: plan.featured ? '2px solid rgba(255,255,255,0.3)' : '2px solid #7c6af7',
                 background: plan.featured ? 'rgba(255,255,255,0.15)' : 'linear-gradient(135deg, #ff3cac 0%, #784ba0 50%, #2b86c5 100%)',
-                color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                color: '#fff', fontSize: 14, fontWeight: 700, cursor: checkoutPlan ? 'default' : 'pointer',
                 marginBottom: 28, transition: 'all 0.2s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                opacity: checkoutPlan && checkoutPlan !== plan.id ? 0.65 : 1
               }}
                 onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
                 onMouseLeave={e => e.currentTarget.style.opacity = '1'}
               >
-                {plan.cta} <ArrowRight size={15} />
+                {checkoutPlan === plan.id ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> : null}
+                {profile?.plan === plan.id ? 'Current plan' : plan.cta} <ArrowRight size={15} />
               </button>
 
               <div style={{ borderTop: `1px solid ${plan.featured ? 'rgba(255,255,255,0.15)' : '#f0ede8'}`, paddingTop: 24 }}>
@@ -229,7 +307,7 @@ export default function Pricing() {
           Ready to build?
         </h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 17, marginBottom: 36 }}>Start free — no credit card needed.</p>
-        <button onClick={handleCTA} style={{
+        <button onClick={() => handleCTA(PLANS[0])} style={{
           background: 'linear-gradient(135deg, #ff3cac 0%, #784ba0 50%, #2b86c5 100%)', color: '#fff', border: 'none', padding: '14px 32px',
           borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'opacity 0.2s'

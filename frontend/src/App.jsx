@@ -8,6 +8,7 @@ import Pricing from './pages/Pricing'
 import Contact from './pages/Contact'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
+import BillingSuccess from './pages/BillingSuccess'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
       <Route path="/contact" element={<Contact />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/terms" element={<Terms />} />
+      <Route path="/billing/success" element={<ProtectedRoute><BillingSuccess /></ProtectedRoute>} />
       <Route path="/auth" element={user ? <Navigate to="/dashboard" replace /> : <Auth />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/editor/:projectId" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
