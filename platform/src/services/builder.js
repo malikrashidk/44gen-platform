@@ -42,7 +42,8 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
   } else if (faviconUrl) {
     // FIX #7: Sanitize faviconUrl — encode any characters that could break out of the HTML attribute
     // (already sanitized upstream in build.js sanitizeFaviconUrl, but defence in depth here)
-    const safeFaviconUrl = String(faviconUrl).replace(/['"<>&]/g, c => ({''':'%27','"':'%22','<':'%3C','>':'%3E','&':'%26'}[c]))
+    // FIX #7: Use encodeURIComponent for safe chars — avoids Python string escape issues with quote chars
+    const safeFaviconUrl = String(faviconUrl).replace(/['"<>&]/g, encodeURIComponent)
     faviconTag = `<link rel="icon" href="${safeFaviconUrl}" />`
   } else {
     faviconTag = `<link rel="icon" href="${DEFAULT_FAVICON}" />`
