@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import CodePanel from '../components/editor/CodePanel'
+import { useGitHubExport } from '../hooks/useGitHubExport'
 import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
@@ -44,21 +45,21 @@ export default function Editor() {
   const [selectedCodeFile, setSelectedCodeFile] = useState('')
   const [codeFilesLoading, setCodeFilesLoading] = useState(false)
   const [downloadingProject, setDownloadingProject] = useState(false)
-  const [githubExportOpen, setGithubExportOpen] = useState(false)
-  const [githubExporting, setGithubExporting] = useState(false)
-  const [githubExportForm, setGithubExportForm] = useState({
-    token: '',
-    owner: '',
-    repo: '',
-    branch: 'main',
-    privateRepo: true,
-    createRepo: true,
-    commitMessage: 'Export from 44Gen'
-  })
-  const [githubExportResult, setGithubExportResult] = useState(null)
-  const [githubExportError, setGithubExportError] = useState('')
-  const [githubConnection, setGithubConnection] = useState(null)
-  const [githubConnecting, setGithubConnecting] = useState(false)
+  // #26: GitHub export state extracted to useGitHubExport hook
+  const {
+    githubExportOpen, setGithubExportOpen,
+    githubExporting,
+    githubExportForm, setGithubExportForm,
+    githubExportResult, setGithubExportResult,
+    githubExportError, setGithubExportError,
+    githubConnection,
+    githubConnecting,
+    loadGitHubConnection,
+    startGitHubConnect,
+    disconnectGitHub,
+    handleGitHubOAuthMessage,
+    handleGitHubExport,
+  } = useGitHubExport({ session, projectId })
   const [savingCodeFile, setSavingCodeFile] = useState(false)
   const [promptMode, setPromptMode] = useState('plan')
   const [chatWidth, setChatWidth] = useState(() => {
@@ -133,21 +134,17 @@ export default function Editor() {
   useEffect(() => {
     if (project?.status === 'deployed') setPromptMode('build')
   }, [project?.status])
+  // #26: GitHub OAuth handled by useGitHubExport hook via handleGitHubOAuthMessage
   useEffect(() => {
     const onGitHubOAuth = (event) => {
       const apiOrigin = API ? new URL(API).origin : ''
-      if (![window.location.origin, apiOrigin].includes(event.origin)) return
-      if (event.data?.type !== '44gen_github_oauth') return
-      if (event.data.ok) {
-        loadGitHubConnection()
-        setGithubExportError('')
-      } else {
-        setGithubExportError(event.data.error || 'GitHub connection failed')
-      }
+      if (![window.location.origin, apiOrigin].includes(event.origin) &&
+          !event.origin?.endsWith('.44gen.com')) return
+      handleGitHubOAuthMessage(event)
     }
     window.addEventListener('message', onGitHubOAuth)
     return () => window.removeEventListener('message', onGitHubOAuth)
-  }, [])
+  }, [handleGitHubOAuthMessage])
 
   // Reset iframe status when preview changes
   useEffect(() => {
