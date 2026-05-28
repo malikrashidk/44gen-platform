@@ -1,12 +1,8 @@
 import { Router } from 'express'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY
 const PEXELS_BASE = 'https://api.pexels.com/v1'
