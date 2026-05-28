@@ -162,9 +162,9 @@ async function createManualBuildJob({ project, userId, files, previousFiles, cha
     .select().single()
   if (error) throw error
 
-  setTimeout(() => {
-    processJob(job.id).catch(err => console.error('[Projects] Code edit job error:', err.message))
-  }, 500)
+  // FIX #11: Removed unnecessary 500ms setTimeout — processJob is fire-and-forget
+  // and does not block the HTTP response. Log full error object for stack traces.
+  processJob(job.id).catch(err => console.error('[Projects] Code edit job error:', err))
 
   return job
 }
@@ -390,3 +390,4 @@ router.post('/:projectId/files/save-and-build', requireAuth, async (req, res) =>
 })
 
 export default router
+
