@@ -12,6 +12,11 @@ dist/
 */dist/
 build/
 
+# Compiled frontend bundle (app/ contains the built output)
+# The hashed asset filenames (app/assets/index-XXXXXX.js) change every build.
+# Committing them causes stale bundles. Build via: cd frontend && npm run build && cp -r dist/* ../app/
+app/assets/
+
 # Logs
 *.log
 npm-debug.log*
@@ -25,3 +30,4 @@ Thumbs.db
 
 # User generated apps
 users/
+
