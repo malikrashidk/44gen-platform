@@ -1,7 +1,13 @@
 import { Router } from 'express'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 import { processJob, subscribeToJob, getJobHistory } from '../services/worker.js'
 import { requireAuth } from '../middleware/auth.js'
+
+// #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
+function isValidUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
 
 const router = Router()
 
@@ -52,10 +58,6 @@ async function captureScreenshot(url) {
   }
   return null
 }
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 // Per-user SSE connection tracking — prevents resource exhaustion
 // (PM2 single-process: this Map is global and correct)
@@ -147,7 +149,7 @@ function buildDesignInstructions(prompt) {
   const instructions = []
 
   // Dark mode
-  if (/dark(\s*(mode|theme|layout|design|ui|look))?|night\s*mode/i.test(prompt)) {
+  if (/\bdark(\s*(mode|theme|layout|design|ui|look))?\b|\bnight\s*mode\b/i.test(prompt)) {
     instructions.push(
       'Apply a COMPLETE dark theme throughout every element: ' +
       'bg-slate-950 or bg-zinc-950 for page background, ' +
@@ -161,7 +163,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Light mode
-  if (/light(\s*(mode|theme|layout|design|ui|look))?/i.test(prompt)) {
+  if (/\blight(\s*(mode|theme|layout|design|ui|look))?\b/i.test(prompt)) {
     instructions.push(
       'Apply a clean light theme: bg-white page background, bg-slate-50 cards, ' +
       'text-slate-900 headings, text-slate-600 body, border-slate-200 borders, ' +
@@ -170,7 +172,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Professional / premium / polished
-  if (/professional|premium|polished|sophisticated|executive|enterprise/i.test(prompt)) {
+  if (/\b(professional|premium|polished|sophisticated|executive|enterprise)\b/i.test(prompt)) {
     instructions.push(
       'Elevate visual quality significantly: ' +
       'increase whitespace and padding (py-8 min for sections), ' +
@@ -182,7 +184,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Modern / clean / minimal
-  if (/modern|clean|minimal|minimalist|simple\s+design|sleek/i.test(prompt)) {
+  if (/\b(modern|clean|minimal|minimalist|sleek)\b|\bsimple\s+design\b/i.test(prompt)) {
     instructions.push(
       'Apply modern minimal design: generous whitespace, clean sans-serif typography, ' +
       'subtle borders instead of heavy shadows, simple color palette (1-2 accent colors), ' +
@@ -191,7 +193,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Full redesign / new layout
-  if (/redesign|new\s+layout|different\s+layout|redo|revamp|overhaul|from\s+scratch/i.test(prompt)) {
+  if (/\b(redesign|redo|revamp|overhaul)\b|\bnew\s+layout\b|\bdifferent\s+layout\b|\bfrom\s+scratch\b/i.test(prompt)) {
     instructions.push(
       'This is a FULL redesign — substantially change the layout structure and visual approach. ' +
       'Do not just restyle the existing layout. Rethink the page/component structure.'
@@ -199,7 +201,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Better / improve / enhance
-  if (/better|improve|enhance|nicer|prettier|more\s+beautiful|upgrade/i.test(prompt)) {
+  if (/\b(improve|enhance|nicer|prettier|upgrade)\b|\bmake.*better\b|\bmore\s+beautiful\b/i.test(prompt)) {
     instructions.push(
       'Meaningfully improve the visual quality: better typography scale, ' +
       'proper spacing rhythm, more refined color usage, better component proportions, ' +
@@ -208,7 +210,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Colorful / vibrant / gradient
-  if (/colorf|vibrant|gradient|colorful/i.test(prompt)) {
+  if (/\b(colorful|vibrant|gradient)\b/i.test(prompt)) {
     instructions.push(
       'Add tasteful color: gradient heading text (bg-gradient-to-r with background-clip), ' +
       'colored accent elements, vibrant but professional palette. ' +
@@ -217,7 +219,7 @@ function buildDesignInstructions(prompt) {
   }
 
   // Animations / transitions
-  if (/animat|transit|smooth|motion/i.test(prompt)) {
+  if (/\b(animate|animation|animations|transition|transitions|smooth|motion)\b/i.test(prompt)) {
     instructions.push(
       'Add smooth transitions: transition-all duration-200 on all interactive elements, ' +
       'hover:scale-105 on cards, hover:-translate-y-1 on buttons, ' +
@@ -238,6 +240,8 @@ router.post('/', requireAuth, async (req, res) => {
 
   if (!plan || !projectId)
     return res.status(400).json({ error: 'Missing required fields' })
+  if (!isValidUUID(projectId))
+    return res.status(400).json({ error: 'Invalid project ID' })
 
   try {
     const job = await createBuildJob({ projectId, userId, plan })
@@ -256,6 +260,8 @@ router.post('/direct', requireAuth, async (req, res) => {
 
   if (!prompt || !projectId)
     return res.status(400).json({ error: 'Missing required fields' })
+  if (!isValidUUID(projectId))
+    return res.status(400).json({ error: 'Invalid project ID' })
 
   try {
     const { data: project } = await supabase
