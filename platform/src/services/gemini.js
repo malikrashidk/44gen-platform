@@ -263,13 +263,15 @@ Current prompt: "${prompt}"`)
 const CODE_GEN_SYSTEM = `You are an elite product designer and React developer. Every app you build looks like a real funded startup product — not a demo, not a tutorial, not a wireframe.
 
 ━━━ PRODUCT COMPLETENESS ━━━
-Ship a functional working product for the requested scope. Do not leave obvious primary actions as dead buttons.
+Always ship a fully working result for the requested scope. The output must feel like a usable product, not a partial mockup. Do not leave obvious primary actions as dead buttons.
 For any generated app:
 - Primary buttons, nav items, filters, tabs, search, add/edit/delete actions, forms, toggles, and menus must do something visible using React state.
 - If there is no backend, implement realistic local-state behavior: add rows/cards, edit records, delete records, open modals, update counts, filter/search lists, switch pages/views, validate forms, and show success/empty states.
 - Do not say "coming soon", "not implemented", "placeholder", or "connect your API" for core requested functionality.
 - Use mock data only as working seed data; users must be able to interact with and change it in the UI.
 - Refinements must preserve existing working behavior while making the requested change.
+- If the complete requested scope is too large for one generation, build the most important end-to-end product slice fully and working. Then include a concise "What is ready" and "Next steps" area in the app experience explaining what is complete and what the user can ask to continue next.
+- Never silently omit requested core functionality. If something is deferred, make the current version useful and clearly explain the next continuation step.
 
 ━━━ VISUAL STANDARD ━━━
 The app must look like it could be featured on ProductHunt today. Professional, polished, immediately impressive on first load. A real user should feel confident using it.
@@ -437,7 +439,7 @@ ${steps}
 ${isMultiFile ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files.join('\n')}` : '\nOutput format: single file (no ===FILE:=== delimiters)'}
 ${existingContext ? `\nExisting project context:\n${existingContext}\n\nRefinement rules:\n- Preserve all existing files and features unless the user explicitly asks to remove them.\n- For multi-file projects, return changed files with ===FILE:path=== delimiters.\n- You may omit unchanged files; the platform will keep their current content.\n- Keep imports consistent with the final file structure.` : ''}
 
-Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketing site' : category === 'dashboard' ? 'production admin dashboard' : category === 'tool' ? 'polished web tool' : category === 'portfolio' ? 'professional portfolio' : 'production app'}. The first screen must be immediately impressive — professional layout, real content, polished interactions. Not a demo or scaffold.`
+Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketing site' : category === 'dashboard' ? 'production admin dashboard' : category === 'tool' ? 'polished web tool' : category === 'portfolio' ? 'professional portfolio' : 'production app'}. The first screen must be immediately impressive — professional layout, real content, polished interactions. Not a demo or scaffold. Every primary workflow visible in the UI must work in this build. If you cannot finish the entire requested scope in one response, ship the strongest working core and include clear next-step copy so the user knows what to ask for next.`
 
     // Build content parts — text + optional vision image
     let contentParts
@@ -529,6 +531,7 @@ You may return only files that changed; unchanged files will be preserved.`
 Rules:
 - Keep the user's requested product, design intent, and all working features
 - Fix the build error directly — change only what's needed to fix it
+- Preserve the product completeness bar: primary workflows should remain functional, and any deferred scope should be explained to the user in the app
 - ${isMultiFile ? 'Preserve the existing multi-file project structure and keep imports consistent between files' : 'Return a single React module for src/App.jsx'}
 - ${isMultiFile ? 'Every returned file must use a safe src/... path and include its full corrected content' : 'First characters must be imports'}
 - Use package imports only, never URL imports
@@ -578,6 +581,7 @@ export async function generateSummary(plan, filesWritten) {
 Keep the title and description friendly, concrete, and outcome-focused.
 Do not mention source files, code modules, internal build steps, or implementation details in title/description/features.
 Use "features" for visible user-facing improvements or working parts of the app.
+Use "next_steps" only when an important requested feature was intentionally deferred; otherwise return [].
 Keep files_written and tech exactly as structured technical metadata.
 
 Return this JSON shape:
@@ -585,6 +589,7 @@ Return this JSON shape:
   "title": "short title",
   "description": "2-3 friendly sentences explaining what is done and what works now",
   "features": ["visible improvement 1", "visible improvement 2", "visible improvement 3"],
+  "next_steps": ["optional continuation step if anything important is deferred"],
   "files_written": ${JSON.stringify(filesWritten)},
   "tech": ["React", "Tailwind CSS"]
 }
@@ -601,6 +606,7 @@ Files: ${filesWritten.join(', ')}`
         title: plan.app_name || 'App',
         description: plan.understanding,
         features: plan.steps?.slice(0, 4) || [],
+        next_steps: [],
         files_written: filesWritten,
         tech: ['React', 'Tailwind CSS']
       }

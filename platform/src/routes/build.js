@@ -245,6 +245,7 @@ router.post('/direct', requireAuth, async (req, res) => {
       `If a file does not need changes, you may omit it; the builder will keep the existing version. ` +
       `Ship the requested product as functional within the generated frontend: primary buttons, navigation, forms, filters, add/edit/delete actions, and menus must visibly work using React state when no backend exists. ` +
       `Do not leave core flows as dead buttons, placeholders, or coming-soon stubs. ` +
+      `If the requested refinement is too large to finish completely in one generation, ship the most important end-to-end slice fully working and add clear in-app "What is ready" and "Next steps" copy that asks the user to continue for the remaining scope. ` +
       `Apply every design instruction precisely and comprehensively — ` +
       `if dark mode is requested, EVERY element must be dark with no exceptions.`
 

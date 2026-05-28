@@ -1561,6 +1561,21 @@ ${answerText}`
               </div>
             )}
 
+            {s?.next_steps?.length > 0 && (
+              <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: d ? 'rgba(188,96,69,0.12)' : 'rgba(188,96,69,0.08)', border: '1px solid rgba(188,96,69,0.18)' }}>
+                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>Next steps:</p>
+                {s.next_steps.slice(0, 3).map((step, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
+                    <ChevronRight size={12} style={{ color: '#BC6045', marginTop: 2, flexShrink: 0 }} />
+                    <span>{step}</span>
+                  </div>
+                ))}
+                <p style={{ marginTop: 7, color: muted, fontSize: 12, lineHeight: 1.45 }}>
+                  Ask me to continue when you are ready and I will build the next part.
+                </p>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setActiveTab('preview'); setPreviewKey(k => k + 1) }}
                 style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
