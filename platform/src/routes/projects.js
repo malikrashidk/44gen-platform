@@ -118,20 +118,20 @@ async function getExportFiles(project) {
 // #37: Push all files in a single commit via the Git Trees API (replaces sequential PUT per file)
 async function pushFilesViaTreesAPI({ token, owner, repo, branch, files, commitMessage }) {
   const base = `https://api.github.com/repos/${owner}/${repo}`
+  const safeBranch = branch || 'main'
+  const encodedBranch = encodeURIComponent(safeBranch).replaceAll('%2F', '/')
 
   // 1. Get current branch tip (empty/new repos have no commits yet)
   let baseCommitSha = null
   let baseTreeSha = null
-  if (branch) {
-    try {
-      const ref = await githubRequest(token, `${base}/git/ref/heads/${encodeURIComponent(branch)}`)
-      baseCommitSha = ref.object.sha
-      const commit = await githubRequest(token, `${base}/git/commits/${baseCommitSha}`)
-      baseTreeSha = commit.tree.sha
-    } catch (err) {
-      if (err.status !== 404) throw err
-      // Branch doesn't exist yet — will be created on push
-    }
+  try {
+    const ref = await githubRequest(token, `${base}/git/ref/heads/${encodedBranch}`)
+    baseCommitSha = ref.object.sha
+    const commit = await githubRequest(token, `${base}/git/commits/${baseCommitSha}`)
+    baseTreeSha = commit.tree.sha
+  } catch (err) {
+    if (err.status !== 404) throw err
+    // Branch doesn't exist yet — will be created on push
   }
 
   // 2. Create blobs for all files (in parallel, max 5 at a time to avoid rate limits)
@@ -178,7 +178,7 @@ async function pushFilesViaTreesAPI({ token, owner, repo, branch, files, commitM
   })
 
   // 5. Update or create branch ref
-  const refPath = `${base}/git/refs/heads/${encodeURIComponent(branch || 'main')}`
+  const refPath = `${base}/git/refs/heads/${encodedBranch}`
   try {
     await githubRequest(token, refPath, {
       method: 'PATCH',
@@ -191,7 +191,7 @@ async function pushFilesViaTreesAPI({ token, owner, repo, branch, files, commitM
     await githubRequest(token, `${base}/git/refs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: `refs/heads/${branch || 'main'}`, sha: newCommit.sha })
+      body: JSON.stringify({ ref: `refs/heads/${safeBranch}`, sha: newCommit.sha })
     })
   }
 
@@ -375,7 +375,7 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
     // #37: Use Git Trees API — single commit for all files (was N sequential PUT requests)
     const { commitSha, filesUploaded, skipped } = await pushFilesViaTreesAPI({
       token, owner, repo,
-      branch: createdRepo || repoData.size === 0 ? targetBranch : targetBranch,
+      branch: targetBranch,
       files,
       commitMessage
     })
@@ -451,4 +451,3 @@ router.post('/:projectId/files/save-and-build', requireAuth, async (req, res) =>
 })
 
 export default router
-

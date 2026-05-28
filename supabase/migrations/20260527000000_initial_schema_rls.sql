@@ -50,10 +50,36 @@ create table if not exists public.plans (
   user_id uuid not null references auth.users(id) on delete cascade,
   prompt text,
   plan jsonb not null default '{}'::jsonb,
+  understanding text,
+  steps jsonb not null default '[]'::jsonb,
+  files jsonb not null default '[]'::jsonb,
+  questions jsonb not null default '[]'::jsonb,
+  out_of_scope jsonb not null default '[]'::jsonb,
+  phases jsonb,
+  is_complex boolean not null default false,
+  current_phase integer not null default 1,
+  total_phases integer not null default 1,
+  status text not null default 'pending',
   credits_used numeric,
   tokens_used integer,
   created_at timestamptz not null default now()
 );
+
+alter table public.plans add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table public.plans add column if not exists prompt text;
+alter table public.plans add column if not exists plan jsonb not null default '{}'::jsonb;
+alter table public.plans add column if not exists understanding text;
+alter table public.plans add column if not exists steps jsonb not null default '[]'::jsonb;
+alter table public.plans add column if not exists files jsonb not null default '[]'::jsonb;
+alter table public.plans add column if not exists questions jsonb not null default '[]'::jsonb;
+alter table public.plans add column if not exists out_of_scope jsonb not null default '[]'::jsonb;
+alter table public.plans add column if not exists phases jsonb;
+alter table public.plans add column if not exists is_complex boolean not null default false;
+alter table public.plans add column if not exists current_phase integer not null default 1;
+alter table public.plans add column if not exists total_phases integer not null default 1;
+alter table public.plans add column if not exists status text not null default 'pending';
+alter table public.plans add column if not exists credits_used numeric;
+alter table public.plans add column if not exists tokens_used integer;
 
 create table if not exists public.build_jobs (
   id uuid primary key default gen_random_uuid(),

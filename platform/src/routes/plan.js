@@ -43,7 +43,9 @@ router.post('/', requireAuth, async (req, res) => {
     if (projectId) {
       await supabase.from('plans').insert({
         project_id: projectId,
+        user_id: userId,
         prompt,
+        plan,
         understanding: plan.understanding,
         steps: plan.steps,
         files: plan.files,

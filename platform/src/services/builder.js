@@ -285,6 +285,8 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
         emit('building', `Build complete! ${time ? time[1] : ''}`)
       }
     })
+    emit('building', 'Checking app completeness...')
+    runGeneratedAppQa(projectDir, fileList)
   } catch (err) {
     try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch {}
     throw err
@@ -392,6 +394,54 @@ function normalizeGeneratedCode(code) {
   })
 
   return cleaned
+}
+
+function runGeneratedAppQa(projectDir, fileList) {
+  const issues = []
+  const actionWords = /\b(add|apply|book|buy|cancel|checkout|connect|continue|create|delete|download|edit|export|filter|import|login|log in|new|publish|remove|save|search|send|share|sign in|sign up|submit|update|upload)\b/i
+  const sourceFiles = fileList.filter(file => /\.(jsx?|tsx?)$/i.test(file.path))
+
+  for (const file of sourceFiles) {
+    const filePath = path.join(projectDir, file.path)
+    if (!fs.existsSync(filePath)) continue
+    const content = fs.readFileSync(filePath, 'utf8')
+
+    if (/\b(todo|coming soon|not implemented|placeholder|lorem ipsum|dummy data only)\b/i.test(content)) {
+      issues.push(`${file.path}: contains placeholder or unfinished user-facing text`)
+    }
+    if (/onClick=\{\s*(?:\(\)\s*=>\s*)?(?:\{\s*\}|void\s+0|undefined|null)\s*\}/i.test(content)) {
+      issues.push(`${file.path}: contains an empty click handler`)
+    }
+    if (/onClick=\{[^}]*alert\s*\(/i.test(content)) {
+      issues.push(`${file.path}: uses alert() as an action instead of implementing the flow`)
+    }
+    if (/(href=["']#["']|href=["']javascript:void\(0\)["'])/i.test(content)) {
+      issues.push(`${file.path}: contains a dead link href`)
+    }
+
+    const buttonMatches = content.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi)
+    for (const match of buttonMatches) {
+      const attrs = match[1] || ''
+      const label = stripJsxText(match[2] || '')
+      if (!actionWords.test(label)) continue
+      const hasHandler = /\bonClick\s*=/.test(attrs) || /\btype=["']submit["']/.test(attrs)
+      if (!hasHandler) {
+        issues.push(`${file.path}: action button "${label.slice(0, 60)}" has no click handler`)
+      }
+    }
+  }
+
+  if (issues.length) {
+    throw new Error(`Generated app QA failed:\n${issues.slice(0, 12).join('\n')}\nMake these user flows functional with React state and preserve all existing files.`)
+  }
+}
+
+function stripJsxText(value) {
+  return String(value)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\{[\s\S]*?\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function runCommand(cmd, args, cwd, onLine) {

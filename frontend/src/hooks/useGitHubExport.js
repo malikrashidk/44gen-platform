@@ -67,7 +67,7 @@ export function useGitHubExport({ session, projectId }) {
   const disconnectGitHub = useCallback(async () => {
     if (!session?.access_token) return
     try {
-      await fetch(`${API}/api/github/disconnect`, {
+      await fetch(`${API}/api/github/connection`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${session.access_token}` }
       })
@@ -98,7 +98,7 @@ export function useGitHubExport({ session, projectId }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
-          token: githubExportForm.token || undefined,
+          token: githubConnection ? undefined : githubExportForm.token || undefined,
           owner: githubExportForm.owner,
           repo: githubExportForm.repo,
           branch: githubExportForm.branch,
@@ -115,7 +115,7 @@ export function useGitHubExport({ session, projectId }) {
     } finally {
       setGithubExporting(false)
     }
-  }, [session?.access_token, projectId, githubExportForm])
+  }, [session?.access_token, projectId, githubExportForm, githubConnection])
 
   return {
     githubExportOpen, setGithubExportOpen,

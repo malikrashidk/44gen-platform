@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import CodePanel from '../components/editor/CodePanel'
 import { useGitHubExport } from '../hooks/useGitHubExport'
+import GitHubExportModal from '../components/editor/GitHubExportModal'
 import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
@@ -137,7 +138,7 @@ export default function Editor() {
   // #26: GitHub OAuth handled by useGitHubExport hook via handleGitHubOAuthMessage
   useEffect(() => {
     const onGitHubOAuth = (event) => {
-      const apiOrigin = API ? new URL(API).origin : ''
+      const apiOrigin = getApiOrigin()
       if (![window.location.origin, apiOrigin].includes(event.origin) &&
           !event.origin?.endsWith('.44gen.com')) return
       handleGitHubOAuthMessage(event)
@@ -145,6 +146,15 @@ export default function Editor() {
     window.addEventListener('message', onGitHubOAuth)
     return () => window.removeEventListener('message', onGitHubOAuth)
   }, [handleGitHubOAuthMessage])
+
+  const getApiOrigin = () => {
+    if (!API) return ''
+    try {
+      return new URL(API, window.location.origin).origin
+    } catch {
+      return ''
+    }
+  }
 
   // Reset iframe status when preview changes
   useEffect(() => {
@@ -319,46 +329,6 @@ export default function Editor() {
     }
   }
 
-  const loadGitHubConnection = async () => {
-    if (!sessionRef.current?.access_token) return
-    try {
-      const res = await fetch(`${API}/api/github/status`, {
-        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
-      })
-      const data = await res.json()
-      if (res.ok) setGithubConnection(data)
-    } catch {}
-  }
-
-  const startGitHubConnect = async () => {
-    if (!sessionRef.current?.access_token || githubConnecting) return
-    setGithubConnecting(true)
-    setGithubExportError('')
-    try {
-      const res = await fetch(`${API}/api/github/connect/start`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ origin: window.location.origin })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to start GitHub connection')
-      window.open(data.url, 'github-connect', 'width=720,height=760')
-    } catch (err) {
-      setGithubExportError(err.message || 'Failed to connect GitHub')
-    } finally {
-      setGithubConnecting(false)
-    }
-  }
-
-  const disconnectGitHub = async () => {
-    if (!sessionRef.current?.access_token) return
-    await fetch(`${API}/api/github/connection`, {
-      method: 'DELETE',
-      headers: authHeaders()
-    })
-    setGithubConnection({ connected: false })
-  }
-
   const openGitHubExport = () => {
     const repoName = (project?.name || '44gen-project')
       .toLowerCase()
@@ -373,31 +343,6 @@ export default function Editor() {
     setGithubExportResult(null)
     setGithubExportOpen(true)
     loadGitHubConnection()
-  }
-
-  const exportProjectToGitHub = async () => {
-    if (!sessionRef.current?.access_token || githubExporting) return
-    setGithubExporting(true)
-    setGithubExportError('')
-    setGithubExportResult(null)
-    try {
-      const res = await fetch(`${API}/api/projects/${projectId}/export/github`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          ...githubExportForm,
-          token: githubConnection?.connected ? '' : githubExportForm.token
-        })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'GitHub export failed')
-      setGithubExportResult(data)
-      addMessage('assistant', `Exported to GitHub: ${data.repo_url}`)
-    } catch (err) {
-      setGithubExportError(err.message || 'GitHub export failed')
-    } finally {
-      setGithubExporting(false)
-    }
   }
 
   const saveCodeFileAndBuild = async (filePath, content) => {
@@ -2744,136 +2689,25 @@ ${answerText}`
         </div>
       </div>
 
-      {githubExportOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-          <div style={{ width: 'min(460px, 100%)', borderRadius: 14, border: `1px solid ${border}`, background: surface, boxShadow: '0 24px 80px rgba(0,0,0,0.28)', padding: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <ExternalLink size={18} style={{ color: '#BC6045' }} />
-                <div>
-                  <p style={{ fontSize: 15, fontWeight: 800, color: text }}>Export to GitHub</p>
-                  <p style={{ fontSize: 12, color: muted, marginTop: 2 }}>Create or update a repository with this app's source.</p>
-                </div>
-              </div>
-              <button onClick={() => setGithubExportOpen(false)}
-                style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <X size={14} />
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, border: `1px solid ${border}`, borderRadius: 10, padding: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ color: text, fontSize: 13, fontWeight: 800 }}>
-                    {githubConnection?.connected ? `Connected as ${githubConnection.login}` : 'Connect your GitHub account'}
-                  </p>
-                  <p style={{ color: muted, fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
-                    {githubConnection?.connected ? 'Exports will use your connected account.' : 'Connect once, then export without pasting tokens.'}
-                  </p>
-                </div>
-                {githubConnection?.connected ? (
-                  <button onClick={disconnectGitHub}
-                    style={{ border: `1px solid ${border}`, background: 'transparent', color: muted, borderRadius: 8, padding: '7px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
-                    Disconnect
-                  </button>
-                ) : (
-                  <button onClick={startGitHubConnect}
-                    disabled={githubConnecting}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: '#24292f', color: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 800, cursor: githubConnecting ? 'default' : 'pointer', flexShrink: 0, opacity: githubConnecting ? 0.7 : 1 }}>
-                    {githubConnecting ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ExternalLink size={12} />}
-                    Connect
-                  </button>
-                )}
-              </div>
-
-              {!githubConnection?.connected && (
-                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                  Or paste a GitHub token
-                  <input type="password" value={githubExportForm.token}
-                    onChange={e => setGithubExportForm(prev => ({ ...prev, token: e.target.value }))}
-                    placeholder="ghp_... or fine-grained token"
-                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                  <span style={{ color: muted, fontSize: 11, fontWeight: 500 }}>Fallback only. The token is sent for this export and is not saved.</span>
-                </label>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                  Owner
-                  <input value={githubExportForm.owner}
-                    onChange={e => setGithubExportForm(prev => ({ ...prev, owner: e.target.value }))}
-                    placeholder="username or org"
-                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                </label>
-                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                  Repository
-                  <input value={githubExportForm.repo}
-                    onChange={e => setGithubExportForm(prev => ({ ...prev, repo: e.target.value }))}
-                    placeholder="my-app"
-                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                </label>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8 }}>
-                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                  Branch
-                  <input value={githubExportForm.branch}
-                    onChange={e => setGithubExportForm(prev => ({ ...prev, branch: e.target.value }))}
-                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                </label>
-                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                  Commit message
-                  <input value={githubExportForm.commitMessage}
-                    onChange={e => setGithubExportForm(prev => ({ ...prev, commitMessage: e.target.value }))}
-                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                </label>
-              </div>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: text, fontSize: 12, fontWeight: 700 }}>
-                <input type="checkbox" checked={githubExportForm.createRepo}
-                  onChange={e => setGithubExportForm(prev => ({ ...prev, createRepo: e.target.checked }))}
-                  style={{ width: 14, height: 14 }} />
-                Create repository if it does not exist
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: text, fontSize: 12, fontWeight: 700, opacity: githubExportForm.createRepo ? 1 : 0.55 }}>
-                <input type="checkbox" checked={githubExportForm.privateRepo}
-                  disabled={!githubExportForm.createRepo}
-                  onChange={e => setGithubExportForm(prev => ({ ...prev, privateRepo: e.target.checked }))}
-                  style={{ width: 14, height: 14 }} />
-                Create as private repo
-              </label>
-
-              {githubExportError && (
-                <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.45, padding: 9, borderRadius: 9, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.08)' }}>
-                  {githubExportError}
-                </div>
-              )}
-
-              {githubExportResult && (
-                <div style={{ color: text, fontSize: 12, lineHeight: 1.45, padding: 9, borderRadius: 9, border: '1px solid rgba(16,185,129,0.22)', background: 'rgba(16,185,129,0.08)' }}>
-                  Exported {githubExportResult.files_uploaded} file{githubExportResult.files_uploaded === 1 ? '' : 's'} to{' '}
-                  <a href={githubExportResult.repo_url} target="_blank" rel="noopener noreferrer" style={{ color: '#10b981', fontWeight: 800 }}>
-                    {githubExportResult.repo_url}
-                  </a>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button onClick={() => setGithubExportOpen(false)}
-                style={{ padding: '9px 12px', borderRadius: 9, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                Close
-              </button>
-              <button onClick={exportProjectToGitHub}
-                disabled={githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 9, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 800, cursor: githubExporting ? 'default' : 'pointer', opacity: githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo ? 0.65 : 1 }}>
-                {githubExporting ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ExternalLink size={13} />}
-                {githubExporting ? 'Exporting...' : 'Export'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <GitHubExportModal
+        open={githubExportOpen}
+        onClose={() => setGithubExportOpen(false)}
+        connection={githubConnection}
+        connecting={githubConnecting}
+        exporting={githubExporting}
+        form={githubExportForm}
+        setForm={setGithubExportForm}
+        error={githubExportError}
+        result={githubExportResult}
+        onConnect={startGitHubConnect}
+        onDisconnect={disconnectGitHub}
+        onExport={handleGitHubExport}
+        darkMode={d}
+        surface={surface}
+        border={border}
+        text={text}
+        muted={muted}
+      />
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
@@ -2917,4 +2751,3 @@ ${answerText}`
     </div>
   )
 }
-

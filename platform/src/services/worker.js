@@ -130,7 +130,7 @@ const MAX_REPAIR_ATTEMPTS = 2
 function isRepairableBuildError(err) {
   const message = String(err?.message || err || '')
   if (/npm ERR!|ENOSPC|EACCES|ETIMEDOUT|ECONNRESET/i.test(message)) return false
-  return /vite|esbuild|transform failed|src\/[^\s:)]+|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
+  return /generated app qa failed|vite|esbuild|transform failed|src\/[^\s:)]+|expected|unexpected|could not resolve|failed to resolve|unterminated|syntax/i.test(message)
 }
 
 function friendlyBuildError(err) {
