@@ -1364,11 +1364,11 @@ ${answerText}`
   const renderMessage = (msg) => {
     if (msg.type === 'build_stream') {
       const c = msg.content || {}
-      const iconColor = c.phase === 'done' ? '#10b981' : c.phase === 'code' ? '#3b82f6' : '#9ca3af'
+      const iconColor = c.phase === 'done' ? '#10b981' : muted
       const Icon = c.phase === 'code' ? Edit : c.phase === 'done' ? CheckCircle2 : Sparkles
 
       return (
-        <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 9, color: muted, fontSize: 14, padding: '4px 2px', minWidth: 0 }}>
+        <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 2px', minWidth: 0 }}>
           <Icon size={15} style={{ color: iconColor, flexShrink: 0 }} />
           <span className={c.phase === 'done' ? '' : 'streaming-heading'} style={{
             minWidth: 0,
@@ -1379,11 +1379,6 @@ ${answerText}`
           }}>
             {c.heading || 'Working...'}
           </span>
-          {c.phase !== 'done' && (
-            <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 800, color: '#9f4d38', background: 'rgba(188,96,69,0.1)', border: '1px solid rgba(188,96,69,0.16)', borderRadius: 999, padding: '1px 6px' }}>
-              {promptMode}
-            </span>
-          )}
         </div>
       )
     }
@@ -1395,13 +1390,7 @@ ${answerText}`
     )
 
     if (msg.type === 'thought') return (
-      <div key={msg.id} style={{
-        background: d ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.08)',
-        border: `1px solid rgba(245,158,11,0.2)`,
-        borderRadius: 10, padding: '8px 12px', fontSize: 12,
-        color: d ? '#fcd34d' : '#92400e', lineHeight: 1.5, fontStyle: 'italic'
-      }}>
-        <span style={{ marginRight: 6 }}>💡</span>
+      <div key={msg.id} style={{ color: muted, fontSize: 12, lineHeight: 1.5, fontStyle: 'italic', padding: '2px 2px' }}>
         <span style={{ opacity: 0.9 }}>{msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content}</span>
       </div>
     )
@@ -1489,7 +1478,7 @@ ${answerText}`
         return q.required && !answer?.length && !customAnswer?.trim()
       })
       return (
-        <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
+        <div key={msg.id} style={{ background: surface, border: `1px solid ${border}`, borderRadius: 12, padding: 13, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#BC6045', fontWeight: 700, marginBottom: 10 }}>
             <Sparkles size={14} />
             Need a bit more detail
@@ -1566,16 +1555,16 @@ ${answerText}`
               justifyContent: 'space-between',
               gap: 10,
               width: '100%',
-              background: d ? 'rgba(16,185,129,0.07)' : 'rgba(16,185,129,0.08)',
-              border: '1px solid rgba(16,185,129,0.18)',
-              borderRadius: 12,
-              padding: '9px 11px',
+              background: 'transparent',
+              border: `1px solid ${border}`,
+              borderRadius: 10,
+              padding: '8px 10px',
               cursor: 'pointer',
               color: text,
               textAlign: 'left'
             }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-              <CheckCircle2 size={14} style={{ color: '#10b981', flexShrink: 0 }} />
+              <CheckCircle2 size={13} style={{ color: muted, flexShrink: 0 }} />
               <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Plan approved
               </span>
@@ -1686,11 +1675,10 @@ ${answerText}`
       const completionDescription = s?.description || c.plan?.understanding || 'Your latest version is built, published, and ready to review.'
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
-          <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 14, padding: 14, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10b981', fontWeight: 600 }}>
-                <CheckCircle2 size={14} /> Done — {s?.title || `Phase ${c.phase} is complete`}
-              </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: text, fontWeight: 700, marginBottom: 8 }}>
+              <CheckCircle2 size={14} style={{ color: '#10b981', flexShrink: 0 }} />
+              <span>Done — {s?.title || `Phase ${c.phase} is complete`}</span>
             </div>
 
             <p style={{ marginBottom: 10, color: d ? '#d4d4d4' : '#3f3a35', fontSize: 13, lineHeight: 1.6 }}>
@@ -1699,7 +1687,7 @@ ${answerText}`
 
             {s?.features?.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>What is working now:</p>
+                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>What is working now</p>
                 {s.features.slice(0, 5).map((f, i) => (
                   <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
                     <CheckCircle2 size={12} style={{ color: '#10b981', marginTop: 2, flexShrink: 0 }} />
@@ -1710,7 +1698,7 @@ ${answerText}`
             )}
 
             {s?.next_steps?.length > 0 && (
-              <div style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: d ? 'rgba(188,96,69,0.12)' : 'rgba(188,96,69,0.08)', border: '1px solid rgba(188,96,69,0.18)' }}>
+              <div style={{ marginBottom: 12 }}>
                 <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>Next steps:</p>
                 {s.next_steps.slice(0, 3).map((step, i) => (
                   <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
@@ -1726,13 +1714,13 @@ ${answerText}`
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setActiveTab('preview'); setPreviewKey(k => k + 1) }}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#10b981', color: '#fff', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+                style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${border}`, background: surface, color: text, fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
                 Review live preview →
               </button>
             </div>
           </div>
 
-          <div style={{ border: `1px solid ${border}`, borderRadius: 12, overflow: 'hidden', background: d ? '#151515' : '#fffdf9', marginBottom: 10 }}>
+          <div style={{ border: `1px solid ${border}`, borderRadius: 10, overflow: 'hidden', background: 'transparent', marginBottom: 10 }}>
             <button onClick={() => setMessages(prev => prev.map(m =>
               m.id === msg.id ? { ...m, content: { ...m.content, detailsOpen: !detailsOpen } } : m
             ))}
@@ -1862,10 +1850,10 @@ ${answerText}`
     return (
       <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
         <div style={{
-          maxWidth: '85%', borderRadius: 14, padding: '9px 13px', fontSize: 13, lineHeight: 1.5,
-          background: msg.role === 'user' ? userBubble : (d ? '#1a1a1a' : '#f3f1ed'),
+          maxWidth: '85%', borderRadius: 14, padding: msg.role === 'user' ? '9px 13px' : '2px 2px', fontSize: 13, lineHeight: 1.5,
+          background: msg.role === 'user' ? userBubble : 'transparent',
           color: text,
-          border: `1px solid ${border}`
+          border: msg.role === 'user' ? `1px solid ${border}` : 'none'
         }}>
           {msg.content}
         </div>
