@@ -1623,7 +1623,7 @@ ${answerText}`
                       </div>
                     )) : (
                       <p style={{ color: muted, fontSize: 12 }}>Activity log is available while the build is running.</p>
-                    ))}
+                    )}
                   </div>
                 )}
 
