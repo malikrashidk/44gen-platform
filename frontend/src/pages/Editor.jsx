@@ -1360,6 +1360,65 @@ ${answerText}`
 
   const isBuilding = stage === 'building' || stage === 'planning'
 
+  const createLineDiff = (before = '', after = '') => {
+    const beforeLines = String(before).split('\n')
+    const afterLines = String(after).split('\n')
+    if (beforeLines.length * afterLines.length > 90000) {
+      return [
+        ...beforeLines.slice(0, 120).map((text, i) => ({ type: 'remove', oldLine: i + 1, newLine: '', text })),
+        ...afterLines.slice(0, 120).map((text, i) => ({ type: 'add', oldLine: '', newLine: i + 1, text }))
+      ]
+    }
+
+    const dp = Array.from({ length: beforeLines.length + 1 }, () => Array(afterLines.length + 1).fill(0))
+    for (let i = beforeLines.length - 1; i >= 0; i--) {
+      for (let j = afterLines.length - 1; j >= 0; j--) {
+        dp[i][j] = beforeLines[i] === afterLines[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1])
+      }
+    }
+
+    const rows = []
+    let i = 0
+    let j = 0
+    while (i < beforeLines.length || j < afterLines.length) {
+      if (i < beforeLines.length && j < afterLines.length && beforeLines[i] === afterLines[j]) {
+        rows.push({ type: 'same', oldLine: i + 1, newLine: j + 1, text: beforeLines[i] })
+        i++; j++
+      } else if (j < afterLines.length && (i === beforeLines.length || dp[i][j + 1] >= dp[i + 1][j])) {
+        rows.push({ type: 'add', oldLine: '', newLine: j + 1, text: afterLines[j] })
+        j++
+      } else {
+        rows.push({ type: 'remove', oldLine: i + 1, newLine: '', text: beforeLines[i] })
+        i++
+      }
+    }
+
+    const keep = new Set()
+    rows.forEach((row, index) => {
+      if (row.type !== 'same') {
+        for (let offset = -3; offset <= 3; offset++) keep.add(index + offset)
+      }
+    })
+
+    const compact = []
+    let skipped = 0
+    rows.forEach((row, index) => {
+      if (keep.has(index) || rows.length <= 180) {
+        if (skipped) {
+          compact.push({ type: 'skip', text: `${skipped} unchanged line${skipped === 1 ? '' : 's'} hidden` })
+          skipped = 0
+        }
+        compact.push(row)
+      } else {
+        skipped++
+      }
+    })
+    if (skipped) compact.push({ type: 'skip', text: `${skipped} unchanged line${skipped === 1 ? '' : 's'} hidden` })
+    return compact.slice(0, 260)
+  }
+
   // ── Message renderers ──────────────────────────────────
   const renderMessage = (msg) => {
     if (msg.type === 'build_stream') {
@@ -1671,6 +1730,10 @@ ${answerText}`
       const addedFiles = changes.added_files || []
       const modifiedFiles = changes.modified_files || []
       const removedFiles = changes.removed_files || []
+      const fileDiffs = changes.file_diffs || []
+      const selectedDiffPath = c.selectedDiffPath || fileDiffs[0]?.path
+      const selectedDiff = fileDiffs.find(file => file.path === selectedDiffPath) || fileDiffs[0]
+      const diffRows = selectedDiff ? createLineDiff(selectedDiff.before, selectedDiff.after) : []
       const changeCount = addedFiles.length + modifiedFiles.length + removedFiles.length
       const completionDescription = s?.description || c.plan?.understanding || 'Your latest version is built, published, and ready to review.'
       return (
@@ -1740,6 +1803,7 @@ ${answerText}`
                 <div style={{ display: 'flex', gap: 5, marginTop: 10 }}>
                   {[
                     { id: 'changes', label: 'Changes' },
+                    { id: 'diff', label: 'Diff' },
                     { id: 'files', label: 'Files' },
                     { id: 'activity', label: 'Activity' }
                   ].map(tab => (
@@ -1772,6 +1836,54 @@ ${answerText}`
                       ))
                     ) : (
                       <p style={{ color: muted, fontSize: 12, marginTop: 4 }}>No source file changes were detected for this build.</p>
+                    )}
+                  </div>
+                )}
+
+                {detailsTab === 'diff' && (
+                  <div style={{ marginTop: 10 }}>
+                    {fileDiffs.length > 0 ? (
+                      <>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                          {fileDiffs.map(file => {
+                            const active = file.path === selectedDiff?.path
+                            const statusColor = file.status === 'added' ? '#10b981' : file.status === 'removed' ? '#ef4444' : '#3b82f6'
+                            return (
+                              <button key={file.path} onClick={() => setMessages(prev => prev.map(m =>
+                                m.id === msg.id ? { ...m, content: { ...m.content, selectedDiffPath: file.path } } : m
+                              ))}
+                                style={{ border: `1px solid ${active ? statusColor : border}`, background: active ? (d ? '#1f1f1f' : '#fff') : 'transparent', color: active ? text : muted, borderRadius: 7, padding: '5px 7px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {file.status[0].toUpperCase()} {file.path}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {selectedDiff?.truncated && (
+                          <p style={{ color: muted, fontSize: 11, marginBottom: 7 }}>Large file diff truncated for chat display. Open the Code tab for the full file.</p>
+                        )}
+                        <div style={{ border: `1px solid ${border}`, borderRadius: 8, overflow: 'auto', maxHeight: 260, background: d ? '#0d1117' : '#f8fafc' }}>
+                          {diffRows.map((row, i) => {
+                            const isAdd = row.type === 'add'
+                            const isRemove = row.type === 'remove'
+                            const isSkip = row.type === 'skip'
+                            return (
+                              <div key={i} style={{ display: 'grid', gridTemplateColumns: isSkip ? '1fr' : '34px 34px 1fr', gap: 0, minWidth: 0, background: isAdd ? 'rgba(16,185,129,0.08)' : isRemove ? 'rgba(239,68,68,0.08)' : 'transparent', color: isSkip ? muted : text, fontFamily: 'monospace', fontSize: 11, lineHeight: 1.45 }}>
+                                {isSkip ? (
+                                  <span style={{ padding: '4px 8px', borderTop: `1px solid ${border}`, borderBottom: `1px solid ${border}` }}>{row.text}</span>
+                                ) : (
+                                  <>
+                                    <span style={{ padding: '2px 5px', color: muted, textAlign: 'right', userSelect: 'none' }}>{row.oldLine}</span>
+                                    <span style={{ padding: '2px 5px', color: muted, textAlign: 'right', userSelect: 'none' }}>{row.newLine}</span>
+                                    <span style={{ padding: '2px 8px', whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isAdd ? '+ ' : isRemove ? '- ' : '  '}{row.text || ' '}</span>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <p style={{ color: muted, fontSize: 12 }}>Diffs will appear for builds created after this update.</p>
                     )}
                   </div>
                 )}

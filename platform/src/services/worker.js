@@ -198,6 +198,29 @@ function summarizeFileChanges(previousFiles = [], nextFiles = []) {
   }
 }
 
+function summarizeFileDiffs(previousFiles = [], nextFiles = []) {
+  const previous = new Map(sanitizeGeneratedFiles(previousFiles).map(file => [file.path, file.content]))
+  const next = new Map(sanitizeGeneratedFiles(nextFiles).map(file => [file.path, file.content]))
+  const paths = [...new Set([...previous.keys(), ...next.keys()])].sort()
+  const MAX_DIFF_FILES = 12
+  const MAX_DIFF_CHARS = 20000
+
+  return paths.flatMap(path => {
+    const before = previous.get(path)
+    const after = next.get(path)
+    if (before === after) return []
+
+    const status = before === undefined ? 'added' : after === undefined ? 'removed' : 'modified'
+    return [{
+      path,
+      status,
+      before: String(before || '').slice(0, MAX_DIFF_CHARS),
+      after: String(after || '').slice(0, MAX_DIFF_CHARS),
+      truncated: String(before || '').length > MAX_DIFF_CHARS || String(after || '').length > MAX_DIFF_CHARS
+    }]
+  }).slice(0, MAX_DIFF_FILES)
+}
+
 async function runJob(jobId) {
   const emit = (type, data = {}) => emitJobEvent(jobId, { type, ...data })
 
@@ -374,7 +397,10 @@ async function runJob(jobId) {
       plan: job.plan,
       summary,
       files_written: filesWritten,
-      changes: summarizeFileChanges(previousFiles, files)
+      changes: {
+        ...summarizeFileChanges(previousFiles, files),
+        file_diffs: summarizeFileDiffs(previousFiles, files)
+      }
     }
 
     await supabase.from('conversations').insert({
