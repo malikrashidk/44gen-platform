@@ -1,9 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 export async function requireAuth(req, res, next) {
   const token =
