@@ -1,239 +1,179 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Check, ChevronDown, Loader2, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { Check, ArrowRight, Zap, Loader2, ChevronDown } from 'lucide-react'
+import { ParticleBackdrop, PublicButton, PublicPage } from '../components/PublicChrome'
 
 const API = import.meta.env.VITE_API_URL
 
-const O = {
-  grad: 'linear-gradient(135deg, #FF6B00 0%, #FF9A3C 100%)',
-  text: { background: 'linear-gradient(135deg, #FF6B00 0%, #FDBA74 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' },
-  glow: 'rgba(255,107,0,0.35)',
-}
-const B = { subtle: 'rgba(255,255,255,0.06)', orange: 'rgba(255,107,0,0.25)' }
-
-const PLANS = [
+const plans = [
   {
-    id: 'free', name: 'Free', price: 0, credits: 10, popular: false,
-    description: 'Perfect for trying 44gen and building your first app.',
-    features: ['10 credits per month', 'Up to 5 deployed apps', 'Live subdomain deployment', 'Code download (zip)', 'Community support'],
-    cta: 'Get started free',
+    id: 'free',
+    name: 'Free',
+    price: '$0',
+    credits: '10 credits / month',
+    note: 'For trying ideas and small prototypes.',
+    cta: 'Start free',
+    features: ['Live subdomain deployment', 'Code download', '5 deployed apps', 'Community support'],
   },
   {
-    id: 'pro', name: 'Pro', price: 19.9, credits: 100, popular: true,
-    description: 'For builders shipping real products.',
-    features: ['100 credits per month', 'Unlimited deployed apps', 'Priority build queue', 'Stock photo library (Pexels)', 'Image upload in editor', 'Visual element editor', 'Email support'],
+    id: 'pro',
+    name: 'Pro',
+    price: '$19.90',
+    credits: '100 credits / month',
+    note: 'For builders shipping real apps regularly.',
     cta: 'Start Pro',
+    featured: true,
+    features: ['Unlimited apps', 'Runtime QA', 'Pexels image search', 'GitHub export', 'Version rollback', 'Priority builds'],
   },
   {
-    id: 'business', name: 'Business', price: 49.9, credits: 260, popular: false,
-    description: 'For teams and power users.',
-    features: ['260 credits per month', 'Everything in Pro', 'Fastest build queue', 'Priority email support', 'Early access to new features', 'Usage dashboard'],
+    id: 'business',
+    name: 'Business',
+    price: '$49.90',
+    credits: '260 credits / month',
+    note: 'For heavier usage and client/product work.',
     cta: 'Start Business',
+    features: ['Everything in Pro', 'Fastest queue', 'Early feature access', 'Priority support', 'Higher monthly credits', 'Usage visibility'],
   },
 ]
 
-const FAQS = [
-  { q: 'What is a credit?', a: 'One credit covers roughly one AI build or update. Larger apps with more files use slightly more. Credits are based on AI token usage divided by 10,000.' },
-  { q: 'Do unused credits roll over?', a: 'Credits reset monthly and do not roll over. Each billing cycle starts with a fresh allocation.' },
-  { q: 'Can I cancel anytime?', a: 'Yes. No contracts, no lock-in. Cancel your plan anytime and keep access until the end of your billing period.' },
-  { q: 'What happens if I run out of credits?', a: 'Builds pause until your credits refill at the start of the next billing cycle. You can upgrade your plan for more credits.' },
-  { q: 'Is the Free plan really free?', a: 'Yes. No credit card required. The Free plan includes 10 credits every month so you can build 2–4 apps to try the platform.' },
-  { q: 'Can I export my code?', a: 'Yes, all plans include code download as a zip. Pro and Business users can also export directly to GitHub.' },
+const faqs = [
+  ['What is a credit?', 'Credits are based on AI usage. Planning is small, while larger multi-file builds use more credits.'],
+  ['Do credits roll over?', 'No. Monthly plan credits reset at the beginning of each billing cycle.'],
+  ['Can I cancel?', 'Yes. Manage billing from the dashboard or pricing page after upgrading.'],
+  ['Do I own the code?', 'Yes. You can download the generated code or export to GitHub.'],
 ]
 
 export default function Pricing() {
-  const navigate = useNavigate()
-  const { user, profile } = useAuth()
-  const [checkoutPlan, setCheckoutPlan] = useState('')
-  const [billingError, setBillingError] = useState('')
+  const { user, profile, session } = useAuth()
   const [openFaq, setOpenFaq] = useState(null)
+  const [busyPlan, setBusyPlan] = useState('')
+  const [error, setError] = useState('')
 
-  const handleCTA = async (plan) => {
-    if (!user) { navigate('/auth'); return }
-    if (plan.id === 'free') { navigate('/dashboard'); return }
-    if (profile?.plan === plan.id) return
-    setCheckoutPlan(plan.id); setBillingError('')
+  const startCheckout = async (plan) => {
+    if (!user) {
+      window.location.href = '/auth'
+      return
+    }
+    if (plan.id === 'free' || profile?.plan === plan.id) {
+      window.location.href = '/dashboard'
+      return
+    }
+    setBusyPlan(plan.id)
+    setError('')
     try {
       const res = await fetch(`${API}/api/billing/checkout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify({ plan: plan.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Could not start checkout')
       window.location.href = data.url
     } catch (err) {
-      setBillingError(err.message || 'Could not start checkout')
-      setCheckoutPlan('')
+      setError(err.message || 'Could not start checkout')
+      setBusyPlan('')
     }
   }
 
-  const openBillingPortal = async () => {
-    setCheckoutPlan('portal'); setBillingError('')
+  const openPortal = async () => {
+    if (!session?.access_token) return
+    setBusyPlan('portal')
+    setError('')
     try {
       const res = await fetch(`${API}/api/billing/portal`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Could not open portal')
+      if (!res.ok) throw new Error(data.error || 'Could not open billing portal')
       window.location.href = data.url
     } catch (err) {
-      setBillingError(err.message || 'Could not open billing portal')
-      setCheckoutPlan('')
+      setError(err.message || 'Could not open billing portal')
+      setBusyPlan('')
     }
   }
 
   return (
-    <div style={{ fontFamily: "'Sora','DM Sans',system-ui,sans-serif", background: '#050505', minHeight: '100vh', color: '#fff' }}>
-
-      {/* ── Navbar ── */}
-      <nav style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(5,5,5,0.9)', backdropFilter: 'blur(24px)', borderBottom: `1px solid ${B.subtle}`, padding: '0 clamp(20px,4vw,48px)', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: O.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#fff' }}>44</div>
-          <span style={{ fontWeight: 800, fontSize: 18, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
-        </Link>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {user ? (
-            <>
-              {profile?.plan !== 'free' && (
-                <button onClick={openBillingPortal} disabled={checkoutPlan === 'portal'} style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', border: `1px solid ${B.subtle}`, padding: '8px 18px', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  {checkoutPlan === 'portal' ? 'Opening...' : 'Manage billing'}
-                </button>
-              )}
-              <button onClick={() => navigate('/dashboard')} style={{ background: O.grad, color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Dashboard</button>
-            </>
-          ) : (
-            <button onClick={() => navigate('/auth')} style={{ background: O.grad, color: '#fff', border: 'none', padding: '8px 20px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Get started free</button>
-          )}
-        </div>
-      </nav>
-
-      {/* ── Hero ── */}
-      <div style={{ padding: 'clamp(64px,8vw,120px) clamp(20px,5vw,48px) clamp(40px,5vw,80px)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(255,107,0,0.08) 0%, transparent 60%)' }} />
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 14px', borderRadius: 100, background: 'rgba(255,107,0,0.08)', border: '1px solid rgba(255,107,0,0.2)', marginBottom: 24, fontSize: 12, color: '#FDBA74', fontWeight: 700 }}>
-            <Zap size={12} color="#FF7A18" /> Simple, transparent pricing
-          </div>
-          <h1 style={{ fontSize: 'clamp(36px,5vw,64px)', fontWeight: 900, letterSpacing: '-2.5px', margin: '0 0 16px', lineHeight: 1.0 }}>
-            <span style={{ color: '#fff' }}>Start free.</span>{' '}
-            <span style={O.text}>Scale as you grow.</span>
-          </h1>
-          <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 17, maxWidth: 420, margin: '0 auto', lineHeight: 1.7 }}>
-            Credits refill monthly. No hidden fees. Cancel anytime.
+    <PublicPage>
+      <section className="public-section" style={{ textAlign: 'center', overflow: 'hidden' }}>
+        <ParticleBackdrop density={34} />
+        <div className="public-container">
+          <div className="public-eyebrow">Pricing</div>
+          <h1 className="public-title">Start free. <span>Scale when it clicks.</span></h1>
+          <p className="public-copy" style={{ maxWidth: 560, margin: '22px auto 0' }}>
+            Credits refill monthly. Free is for trying 44Gen, Pro unlocks the serious workflow, Business gives more room.
           </p>
-          {user && profile?.plan && (
-            <div style={{ marginTop: 20, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.subtle}`, borderRadius: 100, padding: '6px 16px', fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
-              Current plan: <strong style={{ color: '#FF7A18', textTransform: 'capitalize' }}>{profile.plan}</strong>
-              {' · '}{profile.credits?.toFixed(1)} credits remaining
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Plan cards ── */}
-      <div style={{ maxWidth: 1060, margin: '0 auto', padding: '0 clamp(20px,5vw,48px) clamp(80px,8vw,120px)' }}>
-        {billingError && (
-          <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#fca5a5', marginBottom: 24, textAlign: 'center' }}>{billingError}</div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
-          {PLANS.map((plan, i) => {
-            const isCurrent = profile?.plan === plan.id
-            const isLoading = checkoutPlan === plan.id
-            return (
-              <div key={plan.id} style={{
-                background: plan.popular ? 'rgba(255,107,0,0.04)' : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${plan.popular ? B.orange : B.subtle}`,
-                borderRadius: 20, padding: '32px 28px', position: 'relative',
-                boxShadow: plan.popular ? `0 0 60px rgba(255,107,0,0.08)` : 'none',
-                transition: 'transform 0.3s ease',
-              }}
-                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-5px)'}
-                onMouseLeave={e => e.currentTarget.style.transform = 'none'}>
-                {plan.popular && (
-                  <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', background: O.grad, color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', padding: '4px 16px', borderRadius: 100, whiteSpace: 'nowrap' }}>Most popular</div>
-                )}
-                {isCurrent && (
-                  <div style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 100, padding: '3px 10px', fontSize: 10, color: '#4ade80', fontWeight: 700 }}>Current plan</div>
-                )}
-
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>{plan.name}</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
-                  <span style={{ fontSize: 48, fontWeight: 900, color: '#fff', letterSpacing: '-2px', lineHeight: 1 }}>
-                    {plan.price === 0 ? 'Free' : `$${plan.price}`}
-                  </span>
-                  {plan.price > 0 && <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)' }}>/mo</span>}
-                </div>
-                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>{plan.credits} credits/mo</div>
-                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', margin: '0 0 24px', lineHeight: 1.6 }}>{plan.description}</p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
-                  {plan.features.map(f => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <Check size={13} color="#FF7A18" style={{ flexShrink: 0, marginTop: 2 }}/>
-                      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', lineHeight: 1.5 }}>{f}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <button onClick={() => handleCTA(plan)} disabled={Boolean(checkoutPlan) || isCurrent}
-                  style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: plan.popular ? 'none' : `1px solid ${B.subtle}`, background: isCurrent ? 'rgba(255,255,255,0.04)' : plan.popular ? O.grad : 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: isCurrent || checkoutPlan ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: checkoutPlan && checkoutPlan !== plan.id ? 0.5 : 1, transition: 'opacity 0.2s', boxShadow: plan.popular ? `0 0 24px ${O.glow}` : 'none', fontFamily: 'inherit' }}>
-                  {isLoading ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }}/> : isCurrent ? 'Current plan' : <>{plan.cta} <ArrowRight size={14}/></>}
+          {user && profile && (
+            <div className="public-card" style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginTop: 24, padding: '10px 14px', color: 'rgba(246,247,251,0.72)' }}>
+              <Zap size={15} color="#ffca7a" />
+              <span>Current plan: <strong style={{ textTransform: 'capitalize', color: '#f6f7fb' }}>{profile.plan || 'free'}</strong></span>
+              <span>·</span>
+              <span>{profile.credits ?? 0} credits</span>
+              {profile.plan !== 'free' && (
+                <button onClick={openPortal} disabled={busyPlan === 'portal'} style={{ border: 0, background: 'transparent', color: '#7df1c7', fontWeight: 800, cursor: 'pointer' }}>
+                  {busyPlan === 'portal' ? 'Opening...' : 'Manage'}
                 </button>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Compare note */}
-        <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, marginTop: 32 }}>
-          All plans include live subdomain deployment, code export, and the visual editor.
-        </p>
-      </div>
-
-      {/* ── FAQs ── */}
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 clamp(20px,5vw,48px) clamp(80px,8vw,120px)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 48 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#FF7A18', marginBottom: 14 }}>FAQ</div>
-          <h2 style={{ fontSize: 'clamp(28px,3.5vw,44px)', fontWeight: 800, color: '#fff', letterSpacing: '-1.5px', margin: 0 }}>Common questions</h2>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {FAQS.map((faq, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${openFaq === i ? B.orange : B.subtle}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color 0.25s' }}>
-              <button onClick={() => setOpenFaq(openFaq === i ? null : i)} style={{ width: '100%', padding: '18px 22px', background: 'none', border: 'none', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>{faq.q}</span>
-                <ChevronDown size={16} color="rgba(255,255,255,0.35)" style={{ flexShrink: 0, transform: openFaq === i ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s' }}/>
-              </button>
-              {openFaq === i && (
-                <div style={{ padding: '0 22px 18px', fontSize: 14, color: 'rgba(255,255,255,0.45)', lineHeight: 1.75, animation: 'fadeIn 0.2s ease' }}>{faq.a}</div>
               )}
             </div>
-          ))}
+          )}
+          {error && <div style={{ margin: '22px auto 0', maxWidth: 520, color: '#ffb4c9' }}>{error}</div>}
         </div>
-      </div>
+      </section>
 
-      {/* ── Footer ── */}
-      <footer style={{ borderTop: `1px solid ${B.subtle}`, padding: '32px clamp(20px,5vw,48px)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-        <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: O.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, color: '#fff' }}>44</div>
-          <span style={{ fontWeight: 800, fontSize: 16, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
-        </Link>
-        <div style={{ display: 'flex', gap: 24 }}>
-          {[{ l:'Privacy', to:'/privacy' },{ l:'Terms', to:'/terms' },{ l:'Contact', to:'/contact' }].map(lk => (
-            <Link key={lk.l} to={lk.to} style={{ color:'rgba(255,255,255,0.3)', fontSize:13, textDecoration:'none', transition:'color 0.2s' }} onMouseEnter={e=>e.target.style.color='#fff'} onMouseLeave={e=>e.target.style.color='rgba(255,255,255,0.3)'}>{lk.l}</Link>
-          ))}
+      <section className="public-section" style={{ paddingTop: 24 }}>
+        <div className="public-container">
+          <div className="public-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+            {plans.map(plan => {
+              const current = profile?.plan === plan.id
+              const busy = busyPlan === plan.id
+              return (
+                <div key={plan.id} className="public-card public-card-hover" style={{ padding: 26, borderColor: plan.featured ? 'rgba(125,241,199,0.34)' : undefined, background: plan.featured ? 'rgba(125,241,199,0.07)' : undefined }}>
+                  {plan.featured && <div style={{ color: '#7df1c7', fontSize: 12, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 16 }}>Most useful</div>}
+                  <h2 style={{ margin: 0, fontSize: 22 }}>{plan.name}</h2>
+                  <div style={{ marginTop: 18, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span style={{ fontSize: 44, fontWeight: 950, letterSpacing: '-0.07em' }}>{plan.price}</span>
+                    {plan.id !== 'free' && <span style={{ color: 'rgba(246,247,251,0.42)' }}>/mo</span>}
+                  </div>
+                  <p style={{ color: '#ffca7a', fontWeight: 800, margin: '8px 0' }}>{plan.credits}</p>
+                  <p style={{ color: 'rgba(246,247,251,0.55)', lineHeight: 1.65, minHeight: 52 }}>{plan.note}</p>
+                  <PublicButton onClick={() => startCheckout(plan)} disabled={busy || current} variant={plan.featured ? 'primary' : 'secondary'} className="pricing-button">
+                    {busy ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> : current ? 'Current plan' : plan.cta}
+                  </PublicButton>
+                  <div style={{ display: 'grid', gap: 12, marginTop: 24 }}>
+                    {plan.features.map(feature => (
+                      <div key={feature} style={{ display: 'flex', gap: 10, color: 'rgba(246,247,251,0.68)', lineHeight: 1.45 }}>
+                        <Check size={16} color="#7df1c7" style={{ flexShrink: 0, marginTop: 2 }} />
+                        {feature}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
-      </footer>
+      </section>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800;900&display=swap');
-        * { box-sizing: border-box; }
-        @keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
-      `}</style>
-    </div>
+      <section className="public-section" style={{ paddingTop: 38 }}>
+        <div className="public-container" style={{ maxWidth: 760 }}>
+          <div className="public-eyebrow">Questions</div>
+          <h2 className="public-title" style={{ fontSize: 'clamp(32px, 4vw, 54px)', marginBottom: 24 }}>Simple answers.</h2>
+          <div className="public-grid">
+            {faqs.map(([question, answer], index) => (
+              <div key={question} className="public-card" style={{ overflow: 'hidden' }}>
+                <button onClick={() => setOpenFaq(openFaq === index ? null : index)} style={{ width: '100%', border: 0, background: 'transparent', padding: 20, color: '#f6f7fb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', textAlign: 'left' }}>
+                  <strong>{question}</strong>
+                  <ChevronDown size={16} style={{ transform: openFaq === index ? 'rotate(180deg)' : 'none', transition: 'transform 180ms ease' }} />
+                </button>
+                {openFaq === index && <p style={{ margin: 0, padding: '0 20px 20px', color: 'rgba(246,247,251,0.58)', lineHeight: 1.7 }}>{answer}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </PublicPage>
   )
 }

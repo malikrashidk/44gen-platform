@@ -35,7 +35,7 @@ export default function Dashboard() {
   const [deleteTarget, setDeleteTarget] = useState(null) // { id, name }
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('44gen-dark-mode')
-    return saved !== null ? saved === 'true' : true
+    return saved !== null ? saved === 'true' : false
   })
   const [billingLoading, setBillingLoading] = useState(false)
   const navigate = useNavigate()
@@ -142,12 +142,13 @@ export default function Dashboard() {
       {/* Nav */}
       <nav style={{ borderBottom: `1px solid ${border}`, background: surface, position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontWeight: 800, fontSize: 18, letterSpacing: '-0.5px' }}>
-            44<span style={{ color: '#7c3aed' }}>gen</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 10, background: d ? 'linear-gradient(#111820,#111820) padding-box, linear-gradient(135deg,#73d8ff,#7df1c7,#ffca7a) border-box' : 'linear-gradient(#fff,#fff) padding-box, linear-gradient(135deg,#0ea5e9,#10b981,#f59e0b) border-box', border: '1px solid transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, color: d ? '#f6f7fb' : '#111827' }}>44</div>
+            <span style={{ fontWeight: 850, fontSize: 18, letterSpacing: '-0.5px', color: d ? '#f6f7fb' : '#111827' }}>Gen</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '4px 10px', fontSize: 12 }}>
-              <Zap size={11} color="#7c3aed" />
+              <Zap size={11} color="#0ea5e9" />
               <span style={{ fontWeight: 600 }}>{profile?.credits ?? 0}</span>
               <span style={{ color: muted }}>credits</span>
             </div>
@@ -155,7 +156,7 @@ export default function Dashboard() {
               style={{ display: 'flex', alignItems: 'center', gap: 5, background: subtle, border: `1px solid ${border}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, color: text, fontWeight: 700, cursor: billingLoading ? 'default' : 'pointer', textTransform: 'capitalize' }}>
               {billingLoading ? 'Opening...' : (profile?.plan || 'free')}
             </button>
-            <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>
+            <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#0ea5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff' }}>
               {profile?.full_name?.[0] ?? user?.email?.[0] ?? '?'}
             </div>
             <button onClick={toggleDarkMode} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
@@ -175,7 +176,7 @@ export default function Dashboard() {
             <p style={{ color: muted, fontSize: 13 }}>{projects.length} project{projects.length !== 1 ? 's' : ''}</p>
           </div>
           <button onClick={createProject} disabled={creating}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#7c3aed', color: '#fff', border: 'none', padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', opacity: creating ? 0.6 : 1 }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0ea5e9', color: '#fff', border: 'none', padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: creating ? 'not-allowed' : 'pointer', opacity: creating ? 0.6 : 1 }}>
             <Plus size={15} /> {creating ? 'Creating...' : 'New Project'}
           </button>
         </div>
@@ -194,12 +195,12 @@ export default function Dashboard() {
         ) : projects.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', textAlign: 'center' }}>
             <div style={{ width: 60, height: 60, background: 'rgba(124,58,237,0.08)', border: `1px solid rgba(124,58,237,0.15)`, borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-              <Sparkles size={24} color="#7c3aed" />
+              <Sparkles size={24} color="#0ea5e9" />
             </div>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>No projects yet</h3>
             <p style={{ color: muted, fontSize: 13, marginBottom: 20, maxWidth: 280, lineHeight: 1.5 }}>Build your first AI-powered app in seconds</p>
             <button onClick={createProject}
-              style={{ background: '#7c3aed', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              style={{ background: '#0ea5e9', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               Create your first app <ChevronRight size={14} />
             </button>
           </div>
@@ -207,7 +208,7 @@ export default function Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             <button onClick={createProject} disabled={creating}
               style={{ border: `2px dashed ${border}`, background: 'transparent', borderRadius: 14, padding: 20, minHeight: 150, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', color: muted, transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed66'; e.currentTarget.style.color = '#7c3aed' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#0ea5e966'; e.currentTarget.style.color = '#0ea5e9' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = muted }}>
               <div style={{ width: 34, height: 34, borderRadius: 9, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={16} />
@@ -220,7 +221,7 @@ export default function Dashboard() {
               return (
                 <div key={project.id} onClick={() => navigate(`/editor/${project.id}`)}
                   style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 18, minHeight: 150, cursor: 'pointer', transition: 'border-color 0.15s', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = '#7c3aed44'}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#0ea5e944'}
                   onMouseLeave={e => e.currentTarget.style.borderColor = border}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -244,7 +245,7 @@ export default function Dashboard() {
                       {project.subdomain && (
                         <a href={'https://' + project.subdomain + '.44gen.com'} target="_blank" rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()} style={{ color: muted, display: 'flex' }}
-                          onMouseEnter={e => e.currentTarget.style.color = '#7c3aed'}
+                          onMouseEnter={e => e.currentTarget.style.color = '#0ea5e9'}
                           onMouseLeave={e => e.currentTarget.style.color = muted}>
                           <ExternalLink size={12} />
                         </a>

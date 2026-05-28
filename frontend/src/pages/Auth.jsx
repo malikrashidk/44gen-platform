@@ -5,11 +5,11 @@ import { Eye, EyeOff, ArrowRight, Zap, Globe, Code2, Sparkles, Check } from 'luc
 
 // ─── Brand tokens (shared across pages) ──────────────────────────────────────
 const O = {
-  grad: 'linear-gradient(135deg, #FF6B00 0%, #FF9A3C 100%)',
-  text: { background: 'linear-gradient(135deg, #FF6B00 0%, #FDBA74 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' },
-  glow: 'rgba(255,107,0,0.35)',
+  grad: 'linear-gradient(135deg, #73d8ff 0%, #7df1c7 55%, #ffca7a 100%)',
+  text: { background: 'linear-gradient(135deg, #73d8ff 0%, #7df1c7 55%, #ffca7a 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' },
+  glow: 'rgba(115,216,255,0.24)',
 }
-const B = { subtle: 'rgba(255,255,255,0.06)', orange: 'rgba(255,107,0,0.25)' }
+const B = { subtle: 'rgba(255,255,255,0.06)', orange: 'rgba(125,241,199,0.26)' }
 
 // ─── Password strength ────────────────────────────────────────────────────────
 function PasswordStrength({ password }) {
@@ -59,22 +59,20 @@ function LeftPanel() {
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 'clamp(40px,5vw,64px)', overflow: 'hidden', minHeight: '100%' }}>
       {/* Background */}
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #0B0B0D 0%, #141008 60%, #0B0B0D 100%)' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(160deg, #0b0d10 0%, #101923 60%, #0b0d10 100%)' }} />
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
-      <div style={{ position: 'absolute', top: '15%', right: '-10%', width: 400, height: 400, borderRadius: '50%', filter: 'blur(80px)', background: 'rgba(255,107,0,0.1)', animation: 'floatOrb 9s ease-in-out infinite' }} />
-      <div style={{ position: 'absolute', bottom: '10%', left: '-5%', width: 250, height: 250, borderRadius: '50%', filter: 'blur(80px)', background: 'rgba(255,154,60,0.07)', animation: 'floatOrb2 12s ease-in-out infinite' }} />
 
       {/* Logo */}
       <div style={{ position: 'relative', zIndex: 1 }}>
         <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: O.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900, color: '#fff', boxShadow: `0 0 24px ${O.glow}` }}>44</div>
-          <span style={{ fontWeight: 800, fontSize: 20, color: '#fff', letterSpacing: '-0.5px' }}>Gen</span>
+          <div style={{ width: 36, height: 36, borderRadius: 12, background: 'linear-gradient(#111820,#111820) padding-box, linear-gradient(135deg,#73d8ff,#7df1c7,#ffca7a) border-box', border: '1px solid transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900, color: '#fff', boxShadow: `0 0 24px ${O.glow}` }}>44</div>
+          <span style={{ fontWeight: 850, fontSize: 20, color: 'transparent', background: 'linear-gradient(135deg,#fff,#b8dfff,#7df1c7)', WebkitBackgroundClip: 'text', backgroundClip: 'text', letterSpacing: '-0.6px' }}>Gen</span>
         </Link>
       </div>
 
       {/* Middle content */}
       <div style={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '48px 0' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#FF7A18', marginBottom: 20 }}>Why 44Gen</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#7df1c7', marginBottom: 20 }}>Why 44Gen</div>
         <h2 style={{ fontSize: 'clamp(28px,3vw,42px)', fontWeight: 900, color: '#fff', letterSpacing: '-1.5px', margin: '0 0 16px', lineHeight: 1.05 }}>
           From idea to{' '}
           <span style={O.text}>live app</span>
@@ -88,7 +86,7 @@ function LeftPanel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 48 }}>
           {FEATURES_LIST.map((f, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, animation: `fadeIn 0.5s ease ${i * 0.1}s both` }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,107,0,0.1)', border: '1px solid rgba(255,107,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF7A18', flexShrink: 0 }}>{f.icon}</div>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(115,216,255,0.1)', border: '1px solid rgba(125,241,199,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#73d8ff', flexShrink: 0 }}>{f.icon}</div>
               <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)', fontWeight: 500 }}>{f.text}</span>
             </div>
           ))}
@@ -97,7 +95,7 @@ function LeftPanel() {
         {/* Testimonial */}
         <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.orange}`, borderRadius: 16, padding: '20px 22px', transition: 'opacity 0.35s ease', opacity: fade ? 1 : 0 }}>
           <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
-            {[...Array(5)].map((_,i) => <span key={i} style={{ color: '#FF7A18', fontSize: 12 }}>★</span>)}
+            {[...Array(5)].map((_,i) => <span key={i} style={{ color: '#ffca7a', fontSize: 12 }}>★</span>)}
           </div>
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)', fontStyle: 'italic', margin: '0 0 16px', lineHeight: 1.65 }}>"{t.text}"</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -111,7 +109,7 @@ function LeftPanel() {
 
         {/* Dots */}
         <div style={{ display: 'flex', gap: 6, marginTop: 16 }}>
-          {TESTIMONIALS.map((_,i) => <div key={i} style={{ width: i === tIdx ? 20 : 6, height: 4, borderRadius: 2, background: i === tIdx ? '#FF6B00' : 'rgba(255,255,255,0.15)', transition: 'all 0.3s' }} />)}
+          {TESTIMONIALS.map((_,i) => <div key={i} style={{ width: i === tIdx ? 20 : 6, height: 4, borderRadius: 2, background: i === tIdx ? '#7df1c7' : 'rgba(255,255,255,0.15)', transition: 'all 0.3s' }} />)}
         </div>
       </div>
 
@@ -140,7 +138,7 @@ function Input({ type, placeholder, value, onChange, minLength, required, rightS
         style={{
           width: '100%', padding: rightSlot ? '11px 44px 11px 14px' : '11px 14px',
           borderRadius: 10, border: `1px solid ${focus ? B.orange : B.subtle}`,
-          background: focus ? 'rgba(255,107,0,0.04)' : 'rgba(255,255,255,0.03)',
+          background: focus ? 'rgba(115,216,255,0.05)' : 'rgba(255,255,255,0.03)',
           color: '#f9fafb', fontSize: 14, outline: 'none', boxSizing: 'border-box',
           transition: 'border-color 0.2s, background 0.2s',
           fontFamily: 'inherit',
@@ -204,7 +202,6 @@ export default function Auth() {
       {/* ── Right panel — form ── */}
       <div style={{ background: '#050505', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 'clamp(32px,5vw,72px) clamp(32px,6vw,80px)', position: 'relative', overflow: 'hidden' }}>
         {/* Subtle bg glow */}
-        <div style={{ position: 'absolute', top: '30%', right: '-20%', width: 300, height: 300, borderRadius: '50%', filter: 'blur(80px)', background: 'rgba(255,107,0,0.05)', pointerEvents: 'none' }} />
 
         <div style={{ maxWidth: 400, width: '100%', margin: '0 auto', position: 'relative', zIndex: 1 }}>
           {/* Header */}
@@ -215,7 +212,7 @@ export default function Auth() {
             <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.35)', margin: 0 }}>
               {mode === 'login' ? 'Don\'t have an account? ' : mode === 'signup' ? 'Already have an account? ' : ''}
               {mode !== 'reset' && (
-                <button onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')} style={{ background: 'none', border: 'none', color: '#FF7A18', fontWeight: 700, cursor: 'pointer', fontSize: 14, padding: 0, fontFamily: 'inherit' }}>
+                <button onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')} style={{ background: 'none', border: 'none', color: '#7df1c7', fontWeight: 700, cursor: 'pointer', fontSize: 14, padding: 0, fontFamily: 'inherit' }}>
                   {mode === 'login' ? 'Sign up free' : 'Sign in'}
                 </button>
               )}
@@ -259,7 +256,7 @@ export default function Auth() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)' }}>Password</label>
                   {mode === 'login' && (
                     <button type="button" onClick={() => switchMode('reset')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', padding: 0, transition: 'color 0.2s', fontFamily: 'inherit' }}
-                      onMouseEnter={e => e.target.style.color = '#FF7A18'} onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.3)'}>
+                      onMouseEnter={e => e.target.style.color = '#7df1c7'} onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.3)'}>
                       Forgot?
                     </button>
                   )}
@@ -286,7 +283,7 @@ export default function Auth() {
 
             <button type="submit" disabled={loading || (mode === 'signup' && !passwordValid)}
               style={{ width: '100%', padding: '12px 0', borderRadius: 10, border: 'none', background: O.grad, color: '#fff', fontWeight: 700, fontSize: 15, cursor: loading ? 'not-allowed' : 'pointer', opacity: (mode === 'signup' && !passwordValid) ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: `0 0 28px ${O.glow}`, transition: 'opacity 0.2s, box-shadow 0.2s', fontFamily: 'inherit', marginTop: 4 }}
-              onMouseEnter={e => { if (!loading) e.currentTarget.style.boxShadow = `0 4px 40px rgba(255,107,0,0.55)` }}
+              onMouseEnter={e => { if (!loading) e.currentTarget.style.boxShadow = '0 4px 40px rgba(125,241,199,0.26)' }}
               onMouseLeave={e => e.currentTarget.style.boxShadow = `0 0 28px ${O.glow}`}>
               {loading ? <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> :
                 <>{mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send reset email'} <ArrowRight size={15}/></>}
