@@ -8,7 +8,7 @@ import {
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
   Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw,
-  Plus, Copy, Shield
+  Plus, Copy, Github, Shield
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -44,6 +44,19 @@ export default function Editor() {
   const [selectedCodeFile, setSelectedCodeFile] = useState('')
   const [codeFilesLoading, setCodeFilesLoading] = useState(false)
   const [downloadingProject, setDownloadingProject] = useState(false)
+  const [githubExportOpen, setGithubExportOpen] = useState(false)
+  const [githubExporting, setGithubExporting] = useState(false)
+  const [githubExportForm, setGithubExportForm] = useState({
+    token: '',
+    owner: '',
+    repo: '',
+    branch: 'main',
+    privateRepo: true,
+    createRepo: true,
+    commitMessage: 'Export from 44Gen'
+  })
+  const [githubExportResult, setGithubExportResult] = useState(null)
+  const [githubExportError, setGithubExportError] = useState('')
   const [savingCodeFile, setSavingCodeFile] = useState(false)
   const [promptMode, setPromptMode] = useState('plan')
   const [chatWidth, setChatWidth] = useState(() => {
@@ -289,6 +302,43 @@ export default function Editor() {
       addMessage('assistant', err.message || 'Failed to download project.', 'error')
     } finally {
       setDownloadingProject(false)
+    }
+  }
+
+  const openGitHubExport = () => {
+    const repoName = (project?.name || '44gen-project')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || '44gen-project'
+    setGithubExportForm(prev => ({
+      ...prev,
+      repo: prev.repo || repoName,
+      commitMessage: prev.commitMessage || `Export ${project?.name || '44Gen app'}`
+    }))
+    setGithubExportError('')
+    setGithubExportResult(null)
+    setGithubExportOpen(true)
+  }
+
+  const exportProjectToGitHub = async () => {
+    if (!sessionRef.current?.access_token || githubExporting) return
+    setGithubExporting(true)
+    setGithubExportError('')
+    setGithubExportResult(null)
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/export/github`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(githubExportForm)
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'GitHub export failed')
+      setGithubExportResult(data)
+      addMessage('assistant', `Exported to GitHub: ${data.repo_url}`)
+    } catch (err) {
+      setGithubExportError(err.message || 'GitHub export failed')
+    } finally {
+      setGithubExporting(false)
     }
   }
 
@@ -2567,6 +2617,7 @@ ${answerText}`
               loadProjectFiles={loadProjectFiles}
               downloadProjectZip={downloadProjectZip}
               downloadingProject={downloadingProject}
+              openGitHubExport={openGitHubExport}
               copiedFile={copiedFile}
               setCopiedFile={setCopiedFile}
               onSaveFile={saveCodeFileAndBuild}
@@ -2614,6 +2665,111 @@ ${answerText}`
           )}
         </div>
       </div>
+
+      {githubExportOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
+          <div style={{ width: 'min(460px, 100%)', borderRadius: 14, border: `1px solid ${border}`, background: surface, boxShadow: '0 24px 80px rgba(0,0,0,0.28)', padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <Github size={18} style={{ color: '#BC6045' }} />
+                <div>
+                  <p style={{ fontSize: 15, fontWeight: 800, color: text }}>Export to GitHub</p>
+                  <p style={{ fontSize: 12, color: muted, marginTop: 2 }}>Create or update a repository with this app's source.</p>
+                </div>
+              </div>
+              <button onClick={() => setGithubExportOpen(false)}
+                style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${border}`, background: 'transparent', color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                GitHub token
+                <input type="password" value={githubExportForm.token}
+                  onChange={e => setGithubExportForm(prev => ({ ...prev, token: e.target.value }))}
+                  placeholder="ghp_... or fine-grained token"
+                  style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                <span style={{ color: muted, fontSize: 11, fontWeight: 500 }}>Use a token with repository contents access. It is sent only for this export and is not saved.</span>
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                  Owner
+                  <input value={githubExportForm.owner}
+                    onChange={e => setGithubExportForm(prev => ({ ...prev, owner: e.target.value }))}
+                    placeholder="username or org"
+                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                </label>
+                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                  Repository
+                  <input value={githubExportForm.repo}
+                    onChange={e => setGithubExportForm(prev => ({ ...prev, repo: e.target.value }))}
+                    placeholder="my-app"
+                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                </label>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8 }}>
+                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                  Branch
+                  <input value={githubExportForm.branch}
+                    onChange={e => setGithubExportForm(prev => ({ ...prev, branch: e.target.value }))}
+                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                </label>
+                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                  Commit message
+                  <input value={githubExportForm.commitMessage}
+                    onChange={e => setGithubExportForm(prev => ({ ...prev, commitMessage: e.target.value }))}
+                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                </label>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: text, fontSize: 12, fontWeight: 700 }}>
+                <input type="checkbox" checked={githubExportForm.createRepo}
+                  onChange={e => setGithubExportForm(prev => ({ ...prev, createRepo: e.target.checked }))}
+                  style={{ width: 14, height: 14 }} />
+                Create repository if it does not exist
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: text, fontSize: 12, fontWeight: 700, opacity: githubExportForm.createRepo ? 1 : 0.55 }}>
+                <input type="checkbox" checked={githubExportForm.privateRepo}
+                  disabled={!githubExportForm.createRepo}
+                  onChange={e => setGithubExportForm(prev => ({ ...prev, privateRepo: e.target.checked }))}
+                  style={{ width: 14, height: 14 }} />
+                Create as private repo
+              </label>
+
+              {githubExportError && (
+                <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.45, padding: 9, borderRadius: 9, border: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.08)' }}>
+                  {githubExportError}
+                </div>
+              )}
+
+              {githubExportResult && (
+                <div style={{ color: text, fontSize: 12, lineHeight: 1.45, padding: 9, borderRadius: 9, border: '1px solid rgba(16,185,129,0.22)', background: 'rgba(16,185,129,0.08)' }}>
+                  Exported {githubExportResult.files_uploaded} file{githubExportResult.files_uploaded === 1 ? '' : 's'} to{' '}
+                  <a href={githubExportResult.repo_url} target="_blank" rel="noopener noreferrer" style={{ color: '#10b981', fontWeight: 800 }}>
+                    {githubExportResult.repo_url}
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button onClick={() => setGithubExportOpen(false)}
+                style={{ padding: '9px 12px', borderRadius: 9, border: `1px solid ${border}`, background: 'transparent', color: muted, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Close
+              </button>
+              <button onClick={exportProjectToGitHub}
+                disabled={githubExporting || !githubExportForm.token || !githubExportForm.owner || !githubExportForm.repo}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 9, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 800, cursor: githubExporting ? 'default' : 'pointer', opacity: githubExporting || !githubExportForm.token || !githubExportForm.owner || !githubExportForm.repo ? 0.65 : 1 }}>
+                {githubExporting ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Github size={13} />}
+                {githubExporting ? 'Exporting...' : 'Export'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
