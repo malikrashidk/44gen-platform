@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import CodePanel from '../components/editor/CodePanel'
 import { useGitHubExport } from '../hooks/useGitHubExport'
 import GitHubExportModal from '../components/editor/GitHubExportModal'
+import VersionHistoryModal from '../components/editor/VersionHistoryModal'
 import {
   ArrowLeft, Zap, Send, Check, X, ChevronRight, Globe,
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
@@ -46,6 +47,11 @@ export default function Editor() {
   const [selectedCodeFile, setSelectedCodeFile] = useState('')
   const [codeFilesLoading, setCodeFilesLoading] = useState(false)
   const [downloadingProject, setDownloadingProject] = useState(false)
+  const [runtimeQaLoading, setRuntimeQaLoading] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [versions, setVersions] = useState([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [rollbackLoading, setRollbackLoading] = useState('')
   // #26: GitHub export state extracted to useGitHubExport hook
   const {
     githubExportOpen, setGithubExportOpen,
@@ -55,6 +61,8 @@ export default function Editor() {
     githubExportError, setGithubExportError,
     githubConnection,
     githubConnecting,
+    githubRepos,
+    githubReposLoading,
     loadGitHubConnection,
     startGitHubConnect,
     disconnectGitHub,
@@ -127,6 +135,7 @@ export default function Editor() {
   const muted = d ? '#777' : '#7b7670'
   const subtle = d ? '#1a1a1a' : '#f5f2ed'
   const userBubble = d ? '#262321' : '#f1eee9'
+  const isPaidPlan = ['pro', 'business'].includes(String(profile?.plan || '').toLowerCase())
 
   useEffect(() => { fetchProject() }, [projectId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -327,6 +336,200 @@ export default function Editor() {
     } finally {
       setDownloadingProject(false)
     }
+  }
+
+  const loadVersions = async () => {
+    if (!sessionRef.current?.access_token) return
+    setVersionsLoading(true)
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/versions`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load versions')
+      setVersions(data.versions || [])
+    } catch (err) {
+      addMessage('assistant', err.message || 'Could not load version history.', 'error')
+    } finally {
+      setVersionsLoading(false)
+    }
+  }
+
+  const openVersions = async () => {
+    setVersionsOpen(true)
+    await loadVersions()
+  }
+
+  const rollbackToVersion = async (version) => {
+    if (!sessionRef.current?.access_token || rollbackLoading || loading) return
+    setRollbackLoading(version.id)
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/versions/${version.id}/rollback`, {
+        method: 'POST',
+        headers: authHeaders()
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Rollback failed')
+      setVersionsOpen(false)
+      addMessage('assistant', `Restoring version ${data.restored_version}. I’ll rebuild and publish it now.`)
+      setStage('building')
+      setLoading(true)
+      buildStartedRef.current = true
+      setDetailsLog([])
+      buildStreamMessageIdRef.current = null
+      processedEventCountRef.current = 0
+      stopPolling()
+      upsertBuildStream({
+        heading: `Restoring version ${data.restored_version}...`,
+        subtext: '',
+        phase: 'starting',
+        step: { label: `Restoring version ${data.restored_version}`, tone: 'active' }
+      })
+      reconnectAttemptsRef.current = 0
+      streamFinishedRef.current = false
+      streamEventSeenRef.current = false
+      connectToStream(data.job_id)
+    } catch (err) {
+      addMessage('assistant', makeErrorContent({
+        message: err.message || 'Rollback failed',
+        details: err.message || 'Rollback failed',
+        retryable: false,
+        fixable: false
+      }), 'error')
+    } finally {
+      setRollbackLoading('')
+    }
+  }
+
+  const runRuntimeQaForApp = async () => {
+    if (!previewUrl || runtimeQaLoading || loading) return
+    if (!isPaidPlan) {
+      addMessage('assistant', makeErrorContent({
+        message: 'Runtime QA is available on Pro and Business plans.',
+        details: 'Upgrade to run browser-based functionality checks for buttons, navigation, forms, and runtime errors.',
+        retryable: false,
+        fixable: false
+      }), 'error')
+      return
+    }
+
+    setRuntimeQaLoading(true)
+    addMessage('assistant', 'Running Runtime QA in a browser...', 'status')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/runtime-qa`, {
+        method: 'POST',
+        headers: authHeaders()
+      })
+      const data = await res.json()
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      if (!res.ok) {
+        throw new Error(data.error || 'Runtime QA failed')
+      }
+      setMessages(prev => [...prev, { id: Date.now(), role: 'assistant', type: 'qa_result', content: data }])
+    } catch (err) {
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      addMessage('assistant', makeErrorContent({
+        message: err.message || 'Runtime QA failed',
+        details: err.message || 'Runtime QA failed',
+        retryable: false,
+        fixable: false
+      }), 'error')
+    } finally {
+      setRuntimeQaLoading(false)
+    }
+  }
+
+  const fixRuntimeQaIssues = async (qa) => {
+    if (!qa?.issues?.length) return
+    const issueText = qa.issues.map((issue, i) => `${i + 1}. ${issue.message}\n${issue.details || ''}`).join('\n\n')
+    await startDirectBuild(`Fix the Runtime QA issues found in the current app. Preserve all existing working features and files.\n\nRuntime QA report:\n${issueText}`)
+  }
+
+  const parseGitHubRepoCommand = (textValue = '') => {
+    const match = textValue.match(/(?:github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/)
+    if (!match) return null
+    return { owner: match[1], repo: match[2].replace(/\.git$/i, '') }
+  }
+
+  const handleGitHubChatCommand = async (userPrompt) => {
+    const repoRef = parseGitHubRepoCommand(userPrompt)
+    if (!repoRef) return false
+    const wantsPush = /\b(push|export|send|upload)\b/i.test(userPrompt) && /\b(github|repo|repository)\b/i.test(userPrompt)
+    const wantsImport = /\b(read|import|pull|load|clone|bring)\b/i.test(userPrompt) && /\b(github|repo|repository)\b/i.test(userPrompt)
+    if (!wantsPush && !wantsImport) return false
+
+    if (wantsPush) {
+      addMessage('assistant', `Exporting this app to ${repoRef.owner}/${repoRef.repo}...`, 'status')
+      try {
+        const res = await fetch(`${API}/api/projects/${projectId}/export/github`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({
+            owner: repoRef.owner,
+            repo: repoRef.repo,
+            branch: 'main',
+            commitMessage: `Export from 44Gen: ${project?.name || 'Generated app'}`,
+            createRepo: true,
+            privateRepo: true
+          })
+        })
+        const data = await res.json()
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        if (!res.ok) throw new Error(data.error || 'GitHub export failed')
+        addMessage('assistant', `Exported to GitHub: ${data.repo_url}${data.commit_sha ? ` (${data.commit_sha.slice(0, 7)})` : ''}`)
+      } catch (err) {
+        setMessages(prev => prev.filter(m => m.type !== 'status'))
+        addMessage('assistant', makeErrorContent({
+          message: err.message || 'GitHub export failed',
+          details: err.message || 'GitHub export failed',
+          retryable: false,
+          fixable: false
+        }), 'error')
+      } finally {
+        setLoading(false)
+      }
+      return true
+    }
+
+    addMessage('assistant', `Reading ${repoRef.owner}/${repoRef.repo} and preparing it for 44Gen...`, 'status')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/import/github`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(repoRef)
+      })
+      const data = await res.json()
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      if (!res.ok) throw new Error(data.error || 'GitHub import failed')
+      addMessage('assistant', `Imported ${data.files_imported} source files from ${data.repo}. I’ll rebuild it now.`)
+      setStage('building')
+      setLoading(true)
+      buildStartedRef.current = true
+      setDetailsLog([])
+      buildStreamMessageIdRef.current = null
+      processedEventCountRef.current = 0
+      stopPolling()
+      upsertBuildStream({
+        heading: `Importing ${data.repo}...`,
+        subtext: '',
+        phase: 'starting',
+        step: { label: `Importing ${data.repo}`, tone: 'active' }
+      })
+      reconnectAttemptsRef.current = 0
+      streamFinishedRef.current = false
+      streamEventSeenRef.current = false
+      connectToStream(data.job_id)
+    } catch (err) {
+      setMessages(prev => prev.filter(m => m.type !== 'status'))
+      addMessage('assistant', makeErrorContent({
+        message: err.message || 'GitHub import failed',
+        details: err.message || 'GitHub import failed',
+        retryable: false,
+        fixable: false
+      }), 'error')
+      setLoading(false)
+    }
+    return true
   }
 
   const openGitHubExport = () => {
@@ -813,11 +1016,28 @@ export default function Editor() {
 
   const submitPromptText = async (userPrompt) => {
     if (!userPrompt?.trim() || loading) return
+    const imageRef = attachedImage
+    const urlRef = attachedUrl.trim()
     setPrompt('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setLoading(true)
     addMessage('user', userPrompt)
     await saveConversation('user', userPrompt)
+    if (imageRef || urlRef) {
+      setAttachedImage(null)
+      setAttachedUrl('')
+      setShowUrlInput(false)
+    }
+
+    if (previewUrl && /\b(test|check|qa|quality|functionality|make sure).*\b(app|site|buttons|navigation|forms|works|working)\b/i.test(userPrompt)) {
+      setLoading(false)
+      await runRuntimeQaForApp()
+      return
+    }
+
+    if (await handleGitHubChatCommand(userPrompt)) {
+      return
+    }
 
     try {
       setStage('clarifying')
@@ -1793,6 +2013,33 @@ ${answerText}`
       )
     }
 
+    if (msg.type === 'qa_result') {
+      const qa = msg.content || {}
+      const issues = qa.issues || []
+      return (
+        <div key={msg.id} style={{ border: `1px solid ${issues.length ? 'rgba(245,158,11,0.35)' : 'rgba(16,185,129,0.25)'}`, background: issues.length ? (d ? 'rgba(245,158,11,0.08)' : '#fffbeb') : (d ? 'rgba(16,185,129,0.08)' : '#ecfdf5'), borderRadius: 12, padding: 12, fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: text, fontWeight: 800, marginBottom: 7 }}>
+            {issues.length ? <AlertCircle size={14} style={{ color: '#f59e0b' }} /> : <CheckCircle2 size={14} style={{ color: '#10b981' }} />}
+            Runtime QA {issues.length ? 'found issues' : 'passed'}
+          </div>
+          <p style={{ color: d ? '#d4d4d4' : '#444', lineHeight: 1.55, marginBottom: issues.length ? 9 : 0 }}>{qa.summary}</p>
+          {issues.slice(0, 5).map((issue, i) => (
+            <div key={i} style={{ color: d ? '#d4d4d4' : '#444', fontSize: 12, lineHeight: 1.45, marginBottom: 6 }}>
+              <strong>{i + 1}. {issue.message}</strong>
+              {issue.details && <div style={{ color: muted, marginTop: 2 }}>{issue.details.slice(0, 180)}</div>}
+            </div>
+          ))}
+          {issues.length > 0 && (
+            <button onClick={() => fixRuntimeQaIssues(qa)}
+              disabled={loading}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, border: 'none', background: '#BC6045', color: '#fff', borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 800, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.65 : 1 }}>
+              <Sparkles size={12} /> Fix issues
+            </button>
+          )}
+        </div>
+      )
+    }
+
     if (msg.type === 'complete') {
       const c = msg.content
       const s = c.summary
@@ -2097,6 +2344,12 @@ ${answerText}`
               {copiedUrl ? <CheckCircle2 size={11} /> : <Share size={11} />} {copiedUrl ? 'Copied' : 'Share'}
             </button>
           )}
+          {previewUrl && (
+            <button onClick={openVersions}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted, padding: '3px 10px', borderRadius: 7, background: subtle, border: `1px solid ${border}`, cursor: 'pointer' }}>
+              <RefreshCcw size={11} /> Versions
+            </button>
+          )}
           <button onClick={toggleDarkMode}
             style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${border}`, background: subtle, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: muted }}>
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
@@ -2378,6 +2631,13 @@ ${answerText}`
                   <Monitor size={12} style={{ flexShrink: 0 }} />
                   <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{previewUrl ? previewUrl.replace('https://', '') : '/'}</span>
                 </div>
+                <button onClick={runRuntimeQaForApp}
+                  disabled={!previewUrl || runtimeQaLoading || loading}
+                  title={isPaidPlan ? 'Run Runtime QA' : 'Runtime QA is available on Pro and Business plans'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, height: 30, borderRadius: 999, border: `1px solid ${border}`, background: isPaidPlan ? surface : subtle, color: isPaidPlan ? '#BC6045' : muted, padding: '0 10px', fontSize: 11, fontWeight: 800, cursor: previewUrl && !runtimeQaLoading && !loading ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.55 }}>
+                  {runtimeQaLoading ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle2 size={12} />}
+                  Test app
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', padding: 2, borderRadius: 999, border: `1px solid ${border}`, background: subtle }}>
                   {[
                     { id: 'desktop', icon: <Monitor size={12} />, title: 'Desktop preview' },
@@ -2435,7 +2695,7 @@ ${answerText}`
                   <iframe
                     key={previewKey}
                     ref={iframeRef}
-                    src={previewUrl ? `${previewUrl}?v=${previewKey}` : previewUrl}
+                    src={previewUrl ? `${previewUrl}?__44gen_preview=1&v=${previewKey}` : previewUrl}
                     style={{ width: '100%', height: '100%', border: 'none', opacity: iframeStatus === 'loaded' ? 1 : 0, cursor: visualEditMode ? 'crosshair' : 'default' }}
                     title="Preview"
                     onLoad={() => {
@@ -2689,6 +2949,19 @@ ${answerText}`
         </div>
       </div>
 
+      <VersionHistoryModal
+        open={versionsOpen}
+        onClose={() => setVersionsOpen(false)}
+        versions={versions}
+        loading={versionsLoading}
+        rollbackLoading={rollbackLoading}
+        onRollback={rollbackToVersion}
+        border={border}
+        surface={surface}
+        text={text}
+        muted={muted}
+      />
+
       <GitHubExportModal
         open={githubExportOpen}
         onClose={() => setGithubExportOpen(false)}
@@ -2699,6 +2972,8 @@ ${answerText}`
         setForm={setGithubExportForm}
         error={githubExportError}
         result={githubExportResult}
+        repos={githubRepos}
+        reposLoading={githubReposLoading}
         onConnect={startGitHubConnect}
         onDisconnect={disconnectGitHub}
         onExport={handleGitHubExport}

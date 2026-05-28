@@ -22,6 +22,24 @@ export function useGitHubExport({ session, projectId }) {
   const [githubExportError, setGithubExportError] = useState('')
   const [githubConnection, setGithubConnection] = useState(null)
   const [githubConnecting, setGithubConnecting] = useState(false)
+  const [githubRepos, setGithubRepos] = useState([])
+  const [githubReposLoading, setGithubReposLoading] = useState(false)
+
+  const loadGitHubRepos = useCallback(async () => {
+    if (!session?.access_token) return
+    setGithubReposLoading(true)
+    try {
+      const res = await fetch(`${API}/api/github/repos`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+      const data = await res.json()
+      if (res.ok) setGithubRepos(data.repos || [])
+    } catch {
+      setGithubRepos([])
+    } finally {
+      setGithubReposLoading(false)
+    }
+  }, [session?.access_token])
 
   const loadGitHubConnection = useCallback(async () => {
     if (!session?.access_token) return
@@ -33,9 +51,10 @@ export function useGitHubExport({ session, projectId }) {
       setGithubConnection(data.connected ? data : null)
       if (data.connected && data.login) {
         setGithubExportForm(prev => ({ ...prev, owner: data.login }))
+        loadGitHubRepos()
       }
     } catch {}
-  }, [session?.access_token])
+  }, [session?.access_token, loadGitHubRepos])
 
   useEffect(() => {
     if (session?.access_token) loadGitHubConnection()
@@ -72,6 +91,7 @@ export function useGitHubExport({ session, projectId }) {
         headers: { Authorization: `Bearer ${session.access_token}` }
       })
       setGithubConnection(null)
+      setGithubRepos([])
       setGithubExportForm(prev => ({ ...prev, owner: '', token: '' }))
     } catch {}
   }, [session?.access_token])
@@ -125,7 +145,10 @@ export function useGitHubExport({ session, projectId }) {
     githubExportError, setGithubExportError,
     githubConnection,
     githubConnecting,
+    githubRepos,
+    githubReposLoading,
     loadGitHubConnection,
+    loadGitHubRepos,
     startGitHubConnect,
     disconnectGitHub,
     handleGitHubOAuthMessage,

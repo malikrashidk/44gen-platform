@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { requireAuth } from '../middleware/auth.js'
 import {
   deleteGithubConnection,
+  getGithubAccessToken,
   getGithubConnection,
   githubRequest,
   saveGithubConnection
@@ -62,6 +63,30 @@ router.get('/status', requireAuth, async (req, res) => {
     avatar_url: connection?.avatar_url || null,
     updated_at: connection?.updated_at || null
   })
+})
+
+router.get('/repos', requireAuth, async (req, res) => {
+  try {
+    const connection = await getGithubConnection(req.user.id)
+    if (!connection) return res.status(400).json({ error: 'Connect GitHub first.' })
+    const token = await getGithubAccessToken(req.user.id)
+    const data = await githubRequest(token, 'https://api.github.com/user/repos?sort=updated&per_page=50')
+    res.json({
+      repos: (data || []).map(repo => ({
+        id: repo.id,
+        name: repo.name,
+        full_name: repo.full_name,
+        owner: repo.owner?.login,
+        private: repo.private,
+        default_branch: repo.default_branch,
+        html_url: repo.html_url,
+        updated_at: repo.updated_at
+      }))
+    })
+  } catch (err) {
+    console.error('[GitHub Repos] Error:', err.message)
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load GitHub repositories' })
+  }
 })
 
 router.post('/connect/start', requireAuth, async (req, res) => {
@@ -143,4 +168,3 @@ router.delete('/connection', requireAuth, async (req, res) => {
 })
 
 export default router
-

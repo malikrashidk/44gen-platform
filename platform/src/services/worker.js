@@ -161,6 +161,30 @@ async function saveProjectFiles(projectId, files) {
   await supabase.from('project_files').insert(rows)
 }
 
+async function createProjectVersion({ projectId, jobId, files, summary, subdomain, creditsUsed, tokensUsed }) {
+  const safeFiles = sanitizeGeneratedFiles(files)
+  const { data: latest } = await supabase
+    .from('project_versions')
+    .select('version_number')
+    .eq('project_id', projectId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+
+  const versionNumber = Number(latest?.[0]?.version_number || 0) + 1
+  const { error } = await supabase.from('project_versions').insert({
+    project_id: projectId,
+    build_job_id: jobId,
+    version_number: versionNumber,
+    source_files: safeFiles,
+    summary: summary || {},
+    subdomain,
+    credits_used: creditsUsed,
+    tokens_used: tokensUsed
+  })
+  if (error) console.warn('[Worker] Failed to create project version:', error.message)
+  return versionNumber
+}
+
 // Get App.jsx content from files array (for chat display and repair)
 function getAppJsx(files) {
   return files.find(f => f.path === 'src/App.jsx')?.content
@@ -364,6 +388,15 @@ async function runJob(jobId) {
     emit('summarizing', { message: 'Generating summary...' })
     const filesWritten = files.map(f => f.path)
     const summary = await generateSummary(job.plan, filesWritten)
+    const versionNumber = await createProjectVersion({
+      projectId: job.project_id,
+      jobId,
+      files,
+      summary,
+      subdomain,
+      creditsUsed: credits_used,
+      tokensUsed: tokens_used
+    })
 
     await supabase.from('projects').update({
       name: job.plan.app_name || 'My App',
@@ -409,6 +442,7 @@ async function runJob(jobId) {
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
       plan: job.plan,
       summary,
+      version_number: versionNumber,
       files_written: filesWritten,
       changes: {
         ...summarizeFileChanges(previousFiles, files),
@@ -448,4 +482,3 @@ async function runJob(jobId) {
     })
   }
 }
-

@@ -19,7 +19,7 @@ jobs:
           cache-dependency-path: platform/package-lock.json
       - name: Install backend dependencies
         working-directory: platform
-        run: npm ci
+        run: npm install
       - name: Check backend syntax
         working-directory: platform
         run: |

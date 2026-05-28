@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { processJob } from '../services/worker.js'
 import { normalizeGeneratedFilePath, sanitizeGeneratedFiles } from '../services/fileSafety.js'
 import { getGithubAccessToken, githubRequest } from '../services/githubAuth.js'
+import { runRuntimeQa } from '../services/runtimeQa.js'
 
 // #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
 function isValidUUID(str) {
@@ -26,6 +27,7 @@ const TEXT_EXTENSIONS = new Set([
 ])
 const EXPORT_SKIP_FILES = new Set(['package-lock.json', '.env'])
 const EXPORT_INDEX_HTML = '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>44Gen App</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>\n'
+const PAID_PLANS = new Set(['pro', 'business'])
 
 async function getOwnedProject(projectId, userId) {
   if (!isValidUUID(projectId)) return null  // #38: reject malformed UUIDs before hitting DB
@@ -41,6 +43,15 @@ async function getOwnedProject(projectId, userId) {
 function projectDirFor(project) {
   const subdomain = project.subdomain || `app-${project.id.slice(0, 8)}`
   return path.join(USERS_DIR, subdomain)
+}
+
+async function getUserPlan(userId) {
+  const { data } = await supabase
+    .from('profiles')
+    .select('plan')
+    .eq('id', userId)
+    .single()
+  return String(data?.plan || 'free').toLowerCase()
 }
 
 function isTextFile(filePath) {
@@ -196,6 +207,35 @@ async function pushFilesViaTreesAPI({ token, owner, repo, branch, files, commitM
   }
 
   return { commitSha: newCommit.sha, filesUploaded: treeEntries.length, skipped }
+}
+
+async function readGithubSourceFiles({ token, owner, repo, branch = '' }) {
+  const repoData = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}`)
+  const targetBranch = branch || repoData.default_branch || 'main'
+  const ref = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(targetBranch).replaceAll('%2F', '/')}`)
+  const commit = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/git/commits/${ref.object.sha}`)
+  const tree = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/git/trees/${commit.tree.sha}?recursive=1`)
+
+  const entries = (tree.tree || [])
+    .filter(item => item.type === 'blob' && item.path?.startsWith('src/') && /\.(jsx?|tsx?|css|json)$/i.test(item.path))
+    .filter(item => item.size <= 200000)
+    .slice(0, 60)
+
+  const files = []
+  for (const entry of entries) {
+    const blob = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/git/blobs/${entry.sha}`)
+    if (blob.encoding !== 'base64') continue
+    files.push({
+      path: entry.path,
+      content: Buffer.from(blob.content || '', 'base64').toString('utf8')
+    })
+  }
+
+  return {
+    repo: repoData.full_name,
+    branch: targetBranch,
+    files: sanitizeGeneratedFiles(files)
+  }
 }
 
 async function createManualBuildJob({ project, userId, files, previousFiles, changedPath }) {
@@ -392,6 +432,163 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
     console.error('[GitHub Export] Error:', err.message)
     const status = err.status && err.status < 500 ? err.status : 500
     res.status(status).json({ error: err.message || 'GitHub export failed' })
+  }
+})
+
+router.post('/:projectId/runtime-qa', requireAuth, async (req, res) => {
+  const project = await getOwnedProject(req.params.projectId, req.user.id)
+  if (!project) return res.status(404).json({ error: 'Project not found' })
+
+  const plan = await getUserPlan(req.user.id)
+  if (!PAID_PLANS.has(plan)) {
+    return res.status(403).json({
+      error: 'Runtime QA is available on Pro and Business plans.',
+      upgrade_required: true
+    })
+  }
+
+  if (!project.subdomain) return res.status(400).json({ error: 'Build the app before running Runtime QA.' })
+
+  try {
+    const url = `https://${project.subdomain}.44gen.com`
+    const result = await runRuntimeQa(url)
+    await supabase.from('runtime_qa_runs').insert({
+      project_id: project.id,
+      user_id: req.user.id,
+      status: result.ok ? 'passed' : 'issues_found',
+      url,
+      result
+    })
+    res.json(result)
+  } catch (err) {
+    console.error('[Runtime QA] Error:', err)
+    res.status(err.status || 500).json({
+      error: err.message || 'Runtime QA failed',
+      setup_required: err.status === 503
+    })
+  }
+})
+
+router.post('/:projectId/import/github', requireAuth, async (req, res) => {
+  const project = await getOwnedProject(req.params.projectId, req.user.id)
+  if (!project) return res.status(404).json({ error: 'Project not found' })
+
+  try {
+    const token = await getGithubAccessToken(req.user.id)
+    if (!token) return res.status(400).json({ error: 'Connect GitHub first.' })
+
+    const owner = String(req.body?.owner || '').trim()
+    const repo = String(req.body?.repo || '').trim()
+    const branch = req.body?.branch ? String(req.body.branch).trim() : undefined
+    if (!owner || !repo) return res.status(400).json({ error: 'GitHub owner and repo are required.' })
+    if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) {
+      return res.status(400).json({ error: 'Invalid GitHub owner or repo name' })
+    }
+
+    const imported = await readGithubSourceFiles({ token, owner, repo, branch })
+    if (!imported.files.length) {
+      return res.status(400).json({ error: 'No supported src files found in that repository.' })
+    }
+
+    const { data: rows } = await supabase
+      .from('project_files')
+      .select('file_path, content')
+      .eq('project_id', project.id)
+      .order('file_path', { ascending: true })
+    const previousFiles = sanitizeGeneratedFiles((rows || []).map(file => ({
+      path: file.file_path,
+      content: file.content
+    })))
+
+    await supabase.from('project_files').delete().eq('project_id', project.id)
+    await supabase.from('project_files').insert(imported.files.map(file => ({
+      project_id: project.id,
+      file_path: file.path,
+      content: file.content,
+      updated_at: new Date().toISOString()
+    })))
+
+    const job = await createManualBuildJob({
+      project: { ...project, name: project.name || imported.repo },
+      userId: req.user.id,
+      files: imported.files,
+      previousFiles,
+      changedPath: `GitHub repo ${imported.repo}`
+    })
+
+    res.json({
+      job_id: job.id,
+      repo: imported.repo,
+      branch: imported.branch,
+      files_imported: imported.files.length
+    })
+  } catch (err) {
+    console.error('[GitHub Import] Error:', err)
+    res.status(err.status || 500).json({ error: err.message || 'GitHub import failed' })
+  }
+})
+
+router.get('/:projectId/versions', requireAuth, async (req, res) => {
+  const project = await getOwnedProject(req.params.projectId, req.user.id)
+  if (!project) return res.status(404).json({ error: 'Project not found' })
+
+  const { data, error } = await supabase
+    .from('project_versions')
+    .select('id,version_number,summary,subdomain,credits_used,tokens_used,created_at')
+    .eq('project_id', project.id)
+    .order('version_number', { ascending: false })
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ versions: data || [] })
+})
+
+router.post('/:projectId/versions/:versionId/rollback', requireAuth, async (req, res) => {
+  const project = await getOwnedProject(req.params.projectId, req.user.id)
+  if (!project) return res.status(404).json({ error: 'Project not found' })
+
+  try {
+    const { data: version, error } = await supabase
+      .from('project_versions')
+      .select('id,version_number,source_files')
+      .eq('id', req.params.versionId)
+      .eq('project_id', project.id)
+      .single()
+    if (error || !version) return res.status(404).json({ error: 'Version not found' })
+
+    const files = sanitizeGeneratedFiles(version.source_files || [])
+    if (!files.length) return res.status(400).json({ error: 'Version has no source files to restore.' })
+
+    const { data: rows } = await supabase
+      .from('project_files')
+      .select('file_path, content')
+      .eq('project_id', project.id)
+      .order('file_path', { ascending: true })
+    const previousFiles = sanitizeGeneratedFiles((rows || []).map(file => ({
+      path: file.file_path,
+      content: file.content
+    })))
+
+    await supabase.from('project_files').delete().eq('project_id', project.id)
+    await supabase.from('project_files').insert(files.map(file => ({
+      project_id: project.id,
+      file_path: file.path,
+      content: file.content,
+      updated_at: new Date().toISOString()
+    })))
+
+    const job = await createManualBuildJob({
+      project,
+      userId: req.user.id,
+      files,
+      previousFiles,
+      changedPath: `version ${version.version_number}`
+    })
+
+    res.json({ job_id: job.id, restored_version: version.version_number })
+  } catch (err) {
+    console.error('[Projects] Rollback failed:', err)
+    if (err.status) return res.status(err.status).json({ error: err.message })
+    res.status(500).json({ error: err.message || 'Rollback failed' })
   }
 })
 

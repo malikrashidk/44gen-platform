@@ -54,6 +54,8 @@ function buildIndexHtml({ title = 'App', faviconUrl = null, faviconEmoji = null 
   const visualBridge = `
 <script>
 (function() {
+  var is44GenPreview = new URLSearchParams(window.location.search).get('__44gen_preview') === '1';
+  if (!is44GenPreview) return;
   var active = false;
   var hoveredEl = null;
   var hoverBox = null;
@@ -466,4 +468,3 @@ function runCommand(cmd, args, cwd, onLine) {
     proc.on('error', reject)
   })
 }
-

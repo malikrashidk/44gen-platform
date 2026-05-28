@@ -10,6 +10,8 @@ export default function GitHubExportModal({
   setForm,
   error,
   result,
+  repos = [],
+  reposLoading = false,
   onConnect,
   onDisconnect,
   onExport,
@@ -77,6 +79,31 @@ export default function GitHubExportModal({
             </label>
           )}
 
+          {connection?.connected && (
+            <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+              Repository picker
+              <select value={`${form.owner}/${form.repo}`}
+                disabled={reposLoading || repos.length === 0}
+                onChange={e => {
+                  const repo = repos.find(item => item.full_name === e.target.value)
+                  if (!repo) return
+                  setForm(prev => ({
+                    ...prev,
+                    owner: repo.owner,
+                    repo: repo.name,
+                    branch: repo.default_branch || prev.branch || 'main',
+                    createRepo: false
+                  }))
+                }}
+                style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }}>
+                <option value={`${form.owner}/${form.repo}`}>{reposLoading ? 'Loading repositories...' : 'Select recent repository...'}</option>
+                {repos.map(repo => (
+                  <option key={repo.id} value={repo.full_name}>{repo.full_name}{repo.private ? ' private' : ''}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
               Owner
@@ -135,6 +162,12 @@ export default function GitHubExportModal({
               <a href={result.repo_url} target="_blank" rel="noopener noreferrer" style={{ color: '#10b981', fontWeight: 800 }}>
                 {result.repo_url}
               </a>
+              {result.branch && <div style={{ color: muted, marginTop: 5 }}>Branch: {result.branch}</div>}
+              {result.commit_sha && (
+                <a href={`${result.repo_url}/commit/${result.commit_sha}`} target="_blank" rel="noopener noreferrer" style={{ color: '#10b981', fontWeight: 800, display: 'inline-block', marginTop: 4 }}>
+                  View commit
+                </a>
+              )}
             </div>
           )}
         </div>

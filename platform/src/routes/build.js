@@ -301,8 +301,13 @@ router.post('/direct', requireAuth, async (req, res) => {
       }
     }
 
+    const screenshotFixIntent = /\b(screenshot|screen shot|ss|image|photo|looks wrong|issue|bug|fix|broken|not aligned|misaligned|overlap|spacing|cut off|too big|too small|wrong color|see attached|attached)\b/i.test(prompt) &&
+      /\b(fix|issue|bug|wrong|broken|align|misaligned|overlap|spacing|cut off|too big|too small|not working|problem)\b/i.test(prompt)
+
     const referenceNote = visionImage
-      ? `\n\nA reference design image has been attached. Carefully analyze it and adopt its visual style, color palette, layout structure, typography, spacing, and component patterns. Replicate the design language faithfully while building the requested functionality.`
+      ? screenshotFixIntent
+        ? `\n\nA screenshot of the current app issue has been attached. Inspect it carefully, identify the visible problem, and fix only the affected UI/behavior while preserving the existing app structure, files, and working features.`
+        : `\n\nA reference design or feature image has been attached. Use it only as guidance for the requested design, layout, content, or feature direction. Do not assume it is a bug screenshot unless the user explicitly says something is wrong.`
       : referenceUrl && !visionImage
       ? `\n\nReference URL provided: ${referenceUrl}. Use this design as inspiration for the visual style and layout.`
       : ''
@@ -485,4 +490,3 @@ router.get('/status/:jobId', requireAuth, async (req, res) => {
 })
 
 export default router
-
