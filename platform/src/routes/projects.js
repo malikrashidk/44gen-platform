@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import AdmZip from 'adm-zip'
@@ -8,12 +8,14 @@ import { processJob } from '../services/worker.js'
 import { normalizeGeneratedFilePath, sanitizeGeneratedFiles } from '../services/fileSafety.js'
 import { getGithubAccessToken, githubRequest } from '../services/githubAuth.js'
 
+// #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
+function isValidUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
+
 const router = Router()
 const USERS_DIR = '/var/www/44gen/users'
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SECRET_KEY
-)
 
 const SKIP_DIRS = new Set(['node_modules', '.git'])
 const CODE_SKIP_DIRS = new Set(['node_modules', '.git', 'dist'])
@@ -26,6 +28,7 @@ const EXPORT_SKIP_FILES = new Set(['package-lock.json', '.env'])
 const EXPORT_INDEX_HTML = '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>44Gen App</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>\n'
 
 async function getOwnedProject(projectId, userId) {
+  if (!isValidUUID(projectId)) return null  // #38: reject malformed UUIDs before hitting DB
   const { data: project } = await supabase
     .from('projects')
     .select('*')
@@ -112,16 +115,87 @@ async function getExportFiles(project) {
   }))
 }
 
-async function getGithubFileSha({ token, owner, repo, filePath, branch }) {
-  try {
-    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/')
-    const ref = branch ? `?ref=${encodeURIComponent(branch)}` : ''
-    const data = await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}${ref}`)
-    return Array.isArray(data) ? null : data?.sha || null
-  } catch (err) {
-    if ([404, 409].includes(err.status)) return null
-    throw err
+// #37: Push all files in a single commit via the Git Trees API (replaces sequential PUT per file)
+async function pushFilesViaTreesAPI({ token, owner, repo, branch, files, commitMessage }) {
+  const base = `https://api.github.com/repos/${owner}/${repo}`
+
+  // 1. Get current branch tip (empty/new repos have no commits yet)
+  let baseCommitSha = null
+  let baseTreeSha = null
+  if (branch) {
+    try {
+      const ref = await githubRequest(token, `${base}/git/ref/heads/${encodeURIComponent(branch)}`)
+      baseCommitSha = ref.object.sha
+      const commit = await githubRequest(token, `${base}/git/commits/${baseCommitSha}`)
+      baseTreeSha = commit.tree.sha
+    } catch (err) {
+      if (err.status !== 404) throw err
+      // Branch doesn't exist yet — will be created on push
+    }
   }
+
+  // 2. Create blobs for all files (in parallel, max 5 at a time to avoid rate limits)
+  const skipped = []
+  const validFiles = files.filter(file => {
+    if (file.content.length > 900000) { skipped.push(file.path); return false }
+    return true
+  })
+
+  const BATCH = 5
+  const treeEntries = []
+  for (let i = 0; i < validFiles.length; i += BATCH) {
+    const batch = validFiles.slice(i, i + BATCH)
+    const blobs = await Promise.all(batch.map(async file => {
+      const content = Buffer.isBuffer(file.content)
+        ? file.content.toString('base64')
+        : Buffer.from(file.content).toString('base64')
+      const blob = await githubRequest(token, `${base}/git/blobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, encoding: 'base64' })
+      })
+      return { path: file.path, mode: '100644', type: 'blob', sha: blob.sha }
+    }))
+    treeEntries.push(...blobs)
+  }
+
+  // 3. Create new tree
+  const treeBody = { tree: treeEntries }
+  if (baseTreeSha) treeBody.base_tree = baseTreeSha
+  const newTree = await githubRequest(token, `${base}/git/trees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(treeBody)
+  })
+
+  // 4. Create commit
+  const commitBody = { message: commitMessage, tree: newTree.sha }
+  if (baseCommitSha) commitBody.parents = [baseCommitSha]
+  const newCommit = await githubRequest(token, `${base}/git/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(commitBody)
+  })
+
+  // 5. Update or create branch ref
+  const refPath = `${base}/git/refs/heads/${encodeURIComponent(branch || 'main')}`
+  try {
+    await githubRequest(token, refPath, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sha: newCommit.sha, force: false })
+    })
+  } catch (err) {
+    if (err.status !== 422) throw err
+    // Ref doesn't exist — create it
+    await githubRequest(token, `${base}/git/refs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: `refs/heads/${branch || 'main'}`, sha: newCommit.sha })
+    })
+  }
+
+  return { commitSha: newCommit.sha, filesUploaded: treeEntries.length, skipped }
 }
 
 async function createManualBuildJob({ project, userId, files, previousFiles, changedPath }) {
@@ -234,8 +308,9 @@ router.get('/:projectId/download', requireAuth, async (req, res) => {
   const root = projectDirFor(project)
   if (!fs.existsSync(root)) return res.status(404).json({ error: 'Project files not found' })
 
+  // #36: Use CODE_SKIP_DIRS to exclude node_modules, dist, .git from the download zip
   const zip = new AdmZip()
-  for (const file of walkFiles(root)) {
+  for (const file of walkFiles(root, { skipDirs: CODE_SKIP_DIRS })) {
     zip.addLocalFile(file.absolute, path.dirname(file.relative) === '.' ? '' : path.dirname(file.relative))
   }
 
@@ -271,6 +346,7 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
     const files = await getExportFiles(project)
     if (!files.length) return res.status(404).json({ error: 'Project files not found' })
 
+    // Ensure repo exists (create if needed)
     let repoData
     let createdRepo = false
     try {
@@ -294,38 +370,23 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
       createdRepo = true
     }
 
-    const branch = createdRepo || repoData.size === 0 ? '' : (branchInput || repoData.default_branch || 'main')
-    let uploaded = 0
-    const skipped = []
+    const targetBranch = branchInput || repoData.default_branch || 'main'
 
-    for (const file of files) {
-      if (file.content.length > 900000) {
-        skipped.push(file.path)
-        continue
-      }
-
-      const sha = await getGithubFileSha({ token, owner, repo, filePath: file.path, branch })
-      const encodedPath = file.path.split('/').map(encodeURIComponent).join('/')
-      const body = {
-        message: commitMessage,
-        content: Buffer.from(file.content).toString('base64'),
-        ...(sha ? { sha } : {}),
-        ...(branch ? { branch } : {})
-      }
-      await githubRequest(token, `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-      uploaded++
-    }
+    // #37: Use Git Trees API — single commit for all files (was N sequential PUT requests)
+    const { commitSha, filesUploaded, skipped } = await pushFilesViaTreesAPI({
+      token, owner, repo,
+      branch: createdRepo || repoData.size === 0 ? targetBranch : targetBranch,
+      files,
+      commitMessage
+    })
 
     res.json({
       repo_url: repoData.html_url || `https://github.com/${owner}/${repo}`,
-      files_uploaded: uploaded,
+      files_uploaded: filesUploaded,
       files_skipped: skipped,
-      branch: branch || repoData.default_branch || 'main',
-      created_repo: createdRepo
+      branch: targetBranch,
+      created_repo: createdRepo,
+      commit_sha: commitSha
     })
   } catch (err) {
     console.error('[GitHub Export] Error:', err.message)
