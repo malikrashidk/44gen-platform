@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Activity, ArrowRight, CheckCircle2, Download, Github, Layers3, Sparkles, Wand2, Zap } from 'lucide-react'
+import { Activity, ArrowRight, CheckCircle2, Download, GitBranch, Layers3, Sparkles, Wand2, Zap } from 'lucide-react'
 import { ParticleBackdrop, PublicButton, PublicFooter, PublicNav } from '../components/PublicChrome'
 
 const features = [
@@ -8,7 +8,7 @@ const features = [
   { icon: Layers3, title: 'Multi-file apps', copy: 'Generated apps can use real components, pages, shared styles, and editable source files.' },
   { icon: CheckCircle2, title: 'Self-repairing builds', copy: 'Build errors are inspected, repaired, and rebuilt automatically when generated code breaks.' },
   { icon: Activity, title: 'Runtime QA', copy: 'Paid users can ask 44Gen to test buttons, forms, navigation, and runtime errors in a browser.' },
-  { icon: Github, title: 'GitHub connected', copy: 'Export apps to repositories, or ask chat to read a connected repository and rebuild it.' },
+  { icon: GitBranch, title: 'GitHub connected', copy: 'Export apps to repositories, or ask chat to read a connected repository and rebuild it.' },
   { icon: Download, title: 'Own the code', copy: 'Download a clean ZIP, edit files in the Code tab, or keep iterating in chat.' },
 ]
 
