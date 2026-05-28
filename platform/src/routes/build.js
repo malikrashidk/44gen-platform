@@ -243,6 +243,8 @@ router.post('/direct', requireAuth, async (req, res) => {
       `\n\nReturn the complete updated project files using the ===FILE:path=== format when more than one file exists. ` +
       `Preserve every existing file, import, component, state flow, and feature unless the request changes it. ` +
       `If a file does not need changes, you may omit it; the builder will keep the existing version. ` +
+      `Ship the requested product as functional within the generated frontend: primary buttons, navigation, forms, filters, add/edit/delete actions, and menus must visibly work using React state when no backend exists. ` +
+      `Do not leave core flows as dead buttons, placeholders, or coming-soon stubs. ` +
       `Apply every design instruction precisely and comprehensively — ` +
       `if dark mode is requested, EVERY element must be dark with no exceptions.`
 
@@ -257,6 +259,7 @@ router.post('/direct', requireAuth, async (req, res) => {
       steps: [
         `Apply user request: "${prompt}"`,
         'Preserve all existing files, imports, logic, and functionality',
+        'Make all core user actions visibly functional with frontend state',
         'Apply all design changes comprehensively to every element',
         'Return updated files in the existing project structure'
       ],

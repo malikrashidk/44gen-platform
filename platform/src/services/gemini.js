@@ -10,10 +10,12 @@ const FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || '')
 const MODEL_CHAIN = [...new Set([PRIMARY_MODEL, ...FALLBACK_MODELS])]
 
 export function isTemporaryGeminiError(err) {
+  const message = String(err?.message || err || '')
   return err.status === 429 ||
     err.status >= 500 ||
-    err.message?.includes('UNAVAILABLE') ||
-    err.message?.includes('high demand')
+    message.includes('UNAVAILABLE') ||
+    message.includes('high demand') ||
+    /failed to parse stream|parse stream/i.test(message)
 }
 
 async function withRetry(fn, retries = 4, delayMs = 1200) {
@@ -243,6 +245,8 @@ Rules:
 - If intent is clear enough, use action "proceed".
 - Ask questions only when the missing detail would likely change the app substantially.
 - Keep questions minimal: 1 to 3 questions.
+- Prefer "single" or "multi" questions with clear options over free text.
+- For choice questions, include 2 to 5 practical options. The UI will also let the user enter a custom answer.
 - In build mode, small refinements should usually proceed without a plan.
 - In plan mode, proceed means create a visible plan next.`
     })
@@ -257,6 +261,15 @@ Current prompt: "${prompt}"`)
 }
 
 const CODE_GEN_SYSTEM = `You are an elite product designer and React developer. Every app you build looks like a real funded startup product — not a demo, not a tutorial, not a wireframe.
+
+━━━ PRODUCT COMPLETENESS ━━━
+Ship a functional working product for the requested scope. Do not leave obvious primary actions as dead buttons.
+For any generated app:
+- Primary buttons, nav items, filters, tabs, search, add/edit/delete actions, forms, toggles, and menus must do something visible using React state.
+- If there is no backend, implement realistic local-state behavior: add rows/cards, edit records, delete records, open modals, update counts, filter/search lists, switch pages/views, validate forms, and show success/empty states.
+- Do not say "coming soon", "not implemented", "placeholder", or "connect your API" for core requested functionality.
+- Use mock data only as working seed data; users must be able to interact with and change it in the UI.
+- Refinements must preserve existing working behavior while making the requested change.
 
 ━━━ VISUAL STANDARD ━━━
 The app must look like it could be featured on ProductHunt today. Professional, polished, immediately impressive on first load. A real user should feel confident using it.
@@ -442,36 +455,50 @@ Quality bar: This must look like a real ${category === 'landing' ? 'SaaS marketi
       contentParts = userPrompt
     }
 
-    const stream = await model.generateContentStream(contentParts)
-
     let fullText = ''
+    let totalTokens = 0
 
-    for await (const chunk of stream.stream) {
-      const parts = chunk.candidates?.[0]?.content?.parts || []
-      let hasContent = false
+    try {
+      const stream = await model.generateContentStream(contentParts)
 
-      for (const part of parts) {
-        if (part.thought && part.text && onThought) {
-          onThought(part.text)
-          hasContent = true
-        } else if (part.text && !part.thought) {
-          fullText += part.text
-          if (onChunk) onChunk(part.text)
-          hasContent = true
+      for await (const chunk of stream.stream) {
+        const parts = chunk.candidates?.[0]?.content?.parts || []
+        let hasContent = false
+
+        for (const part of parts) {
+          if (part.thought && part.text && onThought) {
+            onThought(part.text)
+            hasContent = true
+          } else if (part.text && !part.thought) {
+            fullText += part.text
+            if (onChunk) onChunk(part.text)
+            hasContent = true
+          }
+        }
+
+        if (!hasContent) {
+          try {
+            const t = chunk.text()
+            if (t) { fullText += t; if (onChunk) onChunk(t) }
+          } catch {}
         }
       }
 
-      if (!hasContent) {
-        try {
-          const t = chunk.text()
-          if (t) { fullText += t; if (onChunk) onChunk(t) }
-        } catch {}
-      }
-    }
+      const finalResponse = await stream.response
+      const usage = finalResponse.usageMetadata
+      totalTokens = (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+    } catch (err) {
+      if (!/failed to parse stream|parse stream/i.test(String(err?.message || err))) throw err
 
-    const finalResponse = await stream.response
-    const usage = finalResponse.usageMetadata
-    const totalTokens = (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+      console.warn(`[Gemini] Streaming response parse failed for ${modelName}; retrying without streaming`)
+      if (onThought) onThought('Streaming had trouble, so I am finishing the generation in standard mode.')
+      const result = await model.generateContent(contentParts)
+      const response = await result.response
+      const usage = response.usageMetadata
+      fullText = response.text()
+      totalTokens = (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
+      if (onChunk) onChunk(fullText)
+    }
 
     const files = parseMultiFileOutput(fullText)
     console.log(`[Gemini] Generated ${files.length} file(s): ${files.map(f => f.path).join(', ')}`)

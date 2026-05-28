@@ -990,8 +990,10 @@ export default function Editor() {
   const promptWithAnswers = (clarification) => {
     const answerText = clarification.questions.map(q => {
       const value = clarification.answers?.[q.id]
+      const customValue = clarification.answers?.[`${q.id}__custom`]
       const rendered = Array.isArray(value) ? value.join(', ') : value
-      return rendered ? `${q.question}: ${rendered}` : null
+      const parts = [rendered, customValue].filter(Boolean)
+      return parts.length ? `${q.question}: ${parts.join(', ')}` : null
     }).filter(Boolean).join('\n')
 
     return `${clarification.refinedPrompt || clarification.originalPrompt}
@@ -1018,8 +1020,24 @@ ${answerText}`
     }))
   }
 
+  const updateClarificationCustomAnswer = (messageId, question, value) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      const nextContent = {
+        ...m.content,
+        answers: { ...m.content.answers, [`${question.id}__custom`]: value }
+      }
+      setPendingClarification(nextContent)
+      return { ...m, content: nextContent }
+    }))
+  }
+
   const continueClarification = async (messageId, clarification) => {
-    const missing = clarification.questions.some(q => q.required && !clarification.answers?.[q.id]?.length)
+    const missing = clarification.questions.some(q => {
+      const answer = clarification.answers?.[q.id]
+      const customAnswer = clarification.answers?.[`${q.id}__custom`]
+      return q.required && !answer?.length && !customAnswer?.trim()
+    })
     if (missing || loading) return
     const finalPrompt = promptWithAnswers(clarification)
     setMessages(prev => prev.filter(m => m.id !== messageId))
@@ -1317,7 +1335,11 @@ ${answerText}`
 
     if (msg.type === 'clarify') {
       const c = msg.content
-      const missing = c.questions.some(q => q.required && !c.answers?.[q.id]?.length)
+      const missing = c.questions.some(q => {
+        const answer = c.answers?.[q.id]
+        const customAnswer = c.answers?.[`${q.id}__custom`]
+        return q.required && !answer?.length && !customAnswer?.trim()
+      })
       return (
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#BC6045', fontWeight: 700, marginBottom: 10 }}>
@@ -1329,28 +1351,34 @@ ${answerText}`
               <div key={q.id}>
                 <p style={{ color: text, fontWeight: 600, marginBottom: 7, lineHeight: 1.4 }}>{q.question}</p>
                 {(q.type === 'single' || q.type === 'multi') && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {q.options?.map(option => {
-                      const current = c.answers?.[q.id]
-                      const active = q.type === 'multi'
-                        ? Array.isArray(current) && current.includes(option)
-                        : current === option
-                      return (
-                        <button key={option} onClick={() => updateClarificationAnswer(msg.id, q, option)}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: 999,
-                            border: `1px solid ${active ? '#BC6045' : border}`,
-                            background: active ? 'rgba(188,96,69,0.12)' : subtle,
-                            color: active ? '#BC6045' : text,
-                            fontSize: 12,
-                            cursor: 'pointer',
-                            fontWeight: active ? 600 : 500
-                          }}>
-                          {option}
-                        </button>
-                      )
-                    })}
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {q.options?.map(option => {
+                        const current = c.answers?.[q.id]
+                        const active = q.type === 'multi'
+                          ? Array.isArray(current) && current.includes(option)
+                          : current === option
+                        return (
+                          <button key={option} onClick={() => updateClarificationAnswer(msg.id, q, option)}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 999,
+                              border: `1px solid ${active ? '#BC6045' : border}`,
+                              background: active ? 'rgba(188,96,69,0.12)' : subtle,
+                              color: active ? '#BC6045' : text,
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              fontWeight: active ? 600 : 500
+                            }}>
+                            {option}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <input value={c.answers?.[`${q.id}__custom`] || ''}
+                      onChange={e => updateClarificationCustomAnswer(msg.id, q, e.target.value)}
+                      placeholder="Custom answer..."
+                      style={{ width: '100%', background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '8px 10px', fontSize: 12, outline: 'none' }} />
                   </div>
                 )}
                 {q.type === 'text' && (
