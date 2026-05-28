@@ -1167,6 +1167,7 @@ ${answerText}`
 
   // Continue to the next phase using the plan stored in the completion event
   const handleContinuePhase = (nextPhase, originalPlan) => {
+    if (originalPlan?.allow_phases !== true) return
     const phasedPlan = { ...originalPlan, current_phase: nextPhase }
     setPlan(phasedPlan)
     setStage('awaiting_approval')
@@ -1408,14 +1409,16 @@ ${answerText}`
         )
       }
 
+      const hasPhases = p.allow_phases === true && p.total_phases > 1 && Array.isArray(p.phases)
+
       return (
         <div key={msg.id} style={{ background: surface, border: `1px solid ${d ? '#2a1f5e' : '#ede9fe'}`, borderRadius: 14, padding: 14, fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#BC6045', fontWeight: 600 }}>
               <Sparkles size={13} />
-              {p.total_phases > 1 && p.current_phase > 1 ? `Phase ${p.current_phase} Plan` : 'Plan Ready'}
+              {hasPhases && p.current_phase > 1 ? `Phase ${p.current_phase} Plan` : 'Plan Ready'}
             </div>
-            {p.is_complex && (
+            {hasPhases && (
               <span style={{ fontSize: 11, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)', padding: '2px 8px', borderRadius: 100 }}>
                 Phase {p.current_phase}/{p.total_phases}
               </span>
@@ -1429,15 +1432,15 @@ ${answerText}`
 
           <div style={{ marginBottom: 10 }}>
             <p style={{ fontSize: 10, color: muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-              {p.is_complex ? `Phase ${p.current_phase} Steps` : 'Steps'}
+              {hasPhases ? `Phase ${p.current_phase} Steps` : 'Steps'}
             </p>
-            {(p.is_complex ? p.phases?.[p.current_phase - 1]?.steps : p.steps)?.map((step, i) => (
+            {(hasPhases ? p.phases?.[p.current_phase - 1]?.steps : p.steps)?.map((step, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, color: text, alignItems: 'flex-start' }}>
                 <ChevronRight size={11} style={{ color: '#BC6045', marginTop: 3, flexShrink: 0 }} />
                 <span style={{ lineHeight: 1.4 }}>{step}</span>
               </div>
             ))}
-            {p.is_complex && p.phases?.slice(p.current_phase).map((ph, i) => (
+            {hasPhases && p.phases?.slice(p.current_phase).map((ph, i) => (
               <div key={i} style={{ marginTop: 6, color: muted, fontSize: 12 }}>
                 Phase {p.current_phase + i + 1}: {ph.description}
               </div>
@@ -1648,7 +1651,7 @@ ${answerText}`
               </a>
             </div>
 
-            {c.plan && c.total_phases > 1 && c.phase < c.total_phases && (
+            {c.plan?.allow_phases === true && c.total_phases > 1 && c.phase < c.total_phases && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${border}` }}>
                 <p style={{ color: muted, fontSize: 12, marginBottom: 6 }}>
                   Ready for Phase {c.phase + 1}? {c.next_phase_description}

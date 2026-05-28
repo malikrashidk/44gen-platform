@@ -104,6 +104,51 @@ function inferRepairTargetPath(error, files = []) {
   return files.find(file => file.path === 'src/App.jsx')?.path || files[0]?.path || 'src/App.jsx'
 }
 
+function shouldAllowPhases(prompt, plan) {
+  const text = `${prompt || ''} ${plan?.understanding || ''}`.toLowerCase()
+  if (/\b(phase|phases|multi-phase|staged|roadmap|milestone|step by step|incremental)\b/i.test(text)) {
+    return true
+  }
+
+  const complexitySignals = [
+    /\b(auth|login|signup|roles?|permissions?)\b/,
+    /\b(database|backend|api|server|supabase)\b/,
+    /\b(payment|checkout|subscription|billing)\b/,
+    /\b(real[-\s]?time|notifications?|chat|messaging)\b/,
+    /\b(admin|customer|client|vendor|staff|team)\s+(portal|dashboard|panel)\b/,
+    /\b(crm|erp|marketplace|booking|calendar|inventory)\b/,
+    /\b(upload|storage|files?|documents?)\b/,
+    /\b(analytics|reports?|charts?)\b/
+  ]
+  const score = complexitySignals.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0)
+  return score >= 4 && String(prompt || '').length > 220
+}
+
+function normalizePlanForBuild(prompt, plan) {
+  const allowPhases = shouldAllowPhases(prompt, plan)
+  const normalized = {
+    ...plan,
+    current_phase: 1,
+    allow_phases: allowPhases
+  }
+
+  if (allowPhases && Number(plan.total_phases) > 1 && Array.isArray(plan.phases)) {
+    return normalized
+  }
+
+  const phaseSteps = Array.isArray(plan.phases)
+    ? plan.phases.flatMap(phase => phase?.steps || phase?.description || []).filter(Boolean)
+    : []
+
+  return {
+    ...normalized,
+    is_complex: false,
+    total_phases: 1,
+    phases: null,
+    steps: (plan.steps?.length ? plan.steps : phaseSteps).slice(0, 8)
+  }
+}
+
 export async function generatePlan(prompt) {
   return withModelFallback(async (modelName) => {
     const model = genAI.getGenerativeModel({
@@ -113,7 +158,10 @@ Determine if the request is simple or complex, identify the app category, visual
 
 COMPLEXITY RULES:
 - Simple: single clear feature, one main screen (tool, calculator, small utility)
-- Complex: multiple distinct features or screens requiring phases
+- Normal/default: landing pages, dashboards, portfolios, ecommerce pages, admin screens, and average multi-section apps are ONE phase.
+- Complex: use phases ONLY for very large apps that explicitly need staged delivery, such as requests with auth + database + roles + payments + realtime/backend workflows, or when the user explicitly asks for phases/roadmap/milestones.
+- Do NOT create phases just because the app has a sidebar, dashboard sections, multiple cards, reports, or several UI components.
+- If unsure, choose ONE phase.
 
 APP CATEGORIES (pick the best match):
 - "landing" — marketing site, homepage, product page, SaaS landing
@@ -151,6 +199,7 @@ Return ONLY valid JSON, no markdown, no backticks:
   "questions": [],
   "out_of_scope": [],
   "estimated_credits": 2.5,
+  "allow_phases": false,
   "phases": null
 }`
     })
@@ -158,7 +207,7 @@ Return ONLY valid JSON, no markdown, no backticks:
     const result = await model.generateContent(`User request: "${prompt}"`)
     const response = await result.response
     const usage = response.usageMetadata
-    const plan = extractJson(response.text())
+    const plan = normalizePlanForBuild(prompt, extractJson(response.text()))
     return {
       plan,
       tokens_used: (usage?.promptTokenCount || 0) + (usage?.candidatesTokenCount || 0)
@@ -356,7 +405,8 @@ export async function generateCodeStream(plan, phase, onChunk, onThought, vision
       systemInstruction: CODE_GEN_SYSTEM
     })
 
-    const steps = plan.is_complex
+    const hasAllowedPhases = plan.allow_phases === true && Number(plan.total_phases) > 1 && Array.isArray(plan.phases)
+    const steps = hasAllowedPhases
       ? plan.phases?.[phase - 1]?.steps?.join('\n')
       : plan.steps?.join('\n')
 
