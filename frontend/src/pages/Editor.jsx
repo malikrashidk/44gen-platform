@@ -8,7 +8,7 @@ import {
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
   Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw,
-  Plus, Copy, Github, Shield
+  Plus, Copy, Shield
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -2732,7 +2732,7 @@ ${answerText}`
           <div style={{ width: 'min(460px, 100%)', borderRadius: 14, border: `1px solid ${border}`, background: surface, boxShadow: '0 24px 80px rgba(0,0,0,0.28)', padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <Github size={18} style={{ color: '#BC6045' }} />
+                <ExternalLink size={18} style={{ color: '#BC6045' }} />
                 <div>
                   <p style={{ fontSize: 15, fontWeight: 800, color: text }}>Export to GitHub</p>
                   <p style={{ fontSize: 12, color: muted, marginTop: 2 }}>Create or update a repository with this app's source.</p>
@@ -2763,7 +2763,7 @@ ${answerText}`
                   <button onClick={startGitHubConnect}
                     disabled={githubConnecting}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: '#24292f', color: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 800, cursor: githubConnecting ? 'default' : 'pointer', flexShrink: 0, opacity: githubConnecting ? 0.7 : 1 }}>
-                    {githubConnecting ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Github size={12} />}
+                    {githubConnecting ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ExternalLink size={12} />}
                     Connect
                   </button>
                 )}
@@ -2850,7 +2850,7 @@ ${answerText}`
               <button onClick={exportProjectToGitHub}
                 disabled={githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo}
                 style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 9, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 800, cursor: githubExporting ? 'default' : 'pointer', opacity: githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo ? 0.65 : 1 }}>
-                {githubExporting ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Github size={13} />}
+                {githubExporting ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ExternalLink size={13} />}
                 {githubExporting ? 'Exporting...' : 'Export'}
               </button>
             </div>

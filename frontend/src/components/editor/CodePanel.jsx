@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  CheckCircle2, Code, Copy, Download, FileCode, FolderOpen, Github, Loader2, RefreshCw
+  CheckCircle2, Code, Copy, Download, ExternalLink, FileCode, FolderOpen, Loader2, RefreshCw
 } from 'lucide-react'
 
 function languageForPath(filePath = '') {
@@ -171,7 +171,7 @@ export default function CodePanel({
                 <button onClick={openGitHubExport}
                   title="Export to GitHub"
                   style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${codeBorder}`, background: d ? '#161b22' : '#f6f8fa', color: muted, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                  <Github size={12} />
+                  <ExternalLink size={12} />
                 </button>
               </div>
             </div>
