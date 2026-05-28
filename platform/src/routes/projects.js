@@ -6,6 +6,7 @@ import AdmZip from 'adm-zip'
 import { requireAuth } from '../middleware/auth.js'
 import { processJob } from '../services/worker.js'
 import { normalizeGeneratedFilePath, sanitizeGeneratedFiles } from '../services/fileSafety.js'
+import { getGithubAccessToken, githubRequest } from '../services/githubAuth.js'
 
 const router = Router()
 const USERS_DIR = '/var/www/44gen/users'
@@ -21,7 +22,8 @@ const TEXT_EXTENSIONS = new Set([
   '.js', '.jsx', '.ts', '.tsx', '.json', '.html', '.css', '.md', '.txt',
   '.yml', '.yaml', '.env', '.gitignore'
 ])
-const EXPORT_SKIP_FILES = new Set(['package-lock.json'])
+const EXPORT_SKIP_FILES = new Set(['package-lock.json', '.env'])
+const EXPORT_INDEX_HTML = '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>44Gen App</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>\n'
 
 async function getOwnedProject(projectId, userId) {
   const { data: project } = await supabase
@@ -76,7 +78,9 @@ async function getExportFiles(project) {
   if (diskFiles.length) {
     return diskFiles.map(file => ({
       path: file.relative,
-      content: fs.readFileSync(file.absolute)
+      content: file.relative === 'index.html'
+        ? Buffer.from(EXPORT_INDEX_HTML)
+        : fs.readFileSync(file.absolute)
     }))
   }
 
@@ -96,7 +100,7 @@ async function getExportFiles(project) {
   const supportFiles = [
     { path: 'package.json', content: defaultPackageJson(project) },
     { path: 'vite.config.js', content: "import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({ plugins: [react()] })\n" },
-    { path: 'index.html', content: '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>44Gen App</title>\n    <script src="https://cdn.tailwindcss.com"></script>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.jsx"></script>\n  </body>\n</html>\n' },
+    { path: 'index.html', content: EXPORT_INDEX_HTML },
     { path: 'src/main.jsx', content: "import React from 'react'\nimport ReactDOM from 'react-dom/client'\nimport App from './App.jsx'\n\nReactDOM.createRoot(document.getElementById('root')).render(\n  <React.StrictMode><App /></React.StrictMode>\n)\n" }
   ]
 
@@ -106,27 +110,6 @@ async function getExportFiles(project) {
     path: file.path,
     content: Buffer.from(file.content)
   }))
-}
-
-async function githubRequest(token, url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(options.headers || {})
-    }
-  })
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : null
-  if (!response.ok) {
-    const err = new Error(data?.message || `GitHub request failed (${response.status})`)
-    err.status = response.status
-    err.data = data
-    throw err
-  }
-  return data
 }
 
 async function getGithubFileSha({ token, owner, repo, filePath, branch }) {
@@ -271,7 +254,7 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' })
 
   try {
-    const token = String(req.body?.token || '').trim()
+    const token = String(req.body?.token || '').trim() || await getGithubAccessToken(req.user.id)
     const owner = String(req.body?.owner || '').trim()
     const repo = String(req.body?.repo || '').trim()
     const branchInput = String(req.body?.branch || 'main').trim()
@@ -279,7 +262,7 @@ router.post('/:projectId/export/github', requireAuth, async (req, res) => {
     const privateRepo = Boolean(req.body?.privateRepo)
     const createRepo = req.body?.createRepo !== false
 
-    if (!token) return res.status(400).json({ error: 'GitHub token is required' })
+    if (!token) return res.status(400).json({ error: 'Connect GitHub first or provide a GitHub token.' })
     if (!owner || !repo) return res.status(400).json({ error: 'GitHub owner and repo are required' })
     if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo)) {
       return res.status(400).json({ error: 'Invalid GitHub owner or repo name' })

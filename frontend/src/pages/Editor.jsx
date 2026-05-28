@@ -57,6 +57,8 @@ export default function Editor() {
   })
   const [githubExportResult, setGithubExportResult] = useState(null)
   const [githubExportError, setGithubExportError] = useState('')
+  const [githubConnection, setGithubConnection] = useState(null)
+  const [githubConnecting, setGithubConnecting] = useState(false)
   const [savingCodeFile, setSavingCodeFile] = useState(false)
   const [promptMode, setPromptMode] = useState('plan')
   const [chatWidth, setChatWidth] = useState(() => {
@@ -131,6 +133,21 @@ export default function Editor() {
   useEffect(() => {
     if (project?.status === 'deployed') setPromptMode('build')
   }, [project?.status])
+  useEffect(() => {
+    const onGitHubOAuth = (event) => {
+      const apiOrigin = API ? new URL(API).origin : ''
+      if (![window.location.origin, apiOrigin].includes(event.origin)) return
+      if (event.data?.type !== '44gen_github_oauth') return
+      if (event.data.ok) {
+        loadGitHubConnection()
+        setGithubExportError('')
+      } else {
+        setGithubExportError(event.data.error || 'GitHub connection failed')
+      }
+    }
+    window.addEventListener('message', onGitHubOAuth)
+    return () => window.removeEventListener('message', onGitHubOAuth)
+  }, [])
 
   // Reset iframe status when preview changes
   useEffect(() => {
@@ -305,6 +322,46 @@ export default function Editor() {
     }
   }
 
+  const loadGitHubConnection = async () => {
+    if (!sessionRef.current?.access_token) return
+    try {
+      const res = await fetch(`${API}/api/github/status`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (res.ok) setGithubConnection(data)
+    } catch {}
+  }
+
+  const startGitHubConnect = async () => {
+    if (!sessionRef.current?.access_token || githubConnecting) return
+    setGithubConnecting(true)
+    setGithubExportError('')
+    try {
+      const res = await fetch(`${API}/api/github/connect/start`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ origin: window.location.origin })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to start GitHub connection')
+      window.open(data.url, 'github-connect', 'width=720,height=760')
+    } catch (err) {
+      setGithubExportError(err.message || 'Failed to connect GitHub')
+    } finally {
+      setGithubConnecting(false)
+    }
+  }
+
+  const disconnectGitHub = async () => {
+    if (!sessionRef.current?.access_token) return
+    await fetch(`${API}/api/github/connection`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    })
+    setGithubConnection({ connected: false })
+  }
+
   const openGitHubExport = () => {
     const repoName = (project?.name || '44gen-project')
       .toLowerCase()
@@ -318,6 +375,7 @@ export default function Editor() {
     setGithubExportError('')
     setGithubExportResult(null)
     setGithubExportOpen(true)
+    loadGitHubConnection()
   }
 
   const exportProjectToGitHub = async () => {
@@ -329,7 +387,10 @@ export default function Editor() {
       const res = await fetch(`${API}/api/projects/${projectId}/export/github`, {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify(githubExportForm)
+        body: JSON.stringify({
+          ...githubExportForm,
+          token: githubConnection?.connected ? '' : githubExportForm.token
+        })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'GitHub export failed')
@@ -2684,14 +2745,40 @@ ${answerText}`
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
-              <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
-                GitHub token
-                <input type="password" value={githubExportForm.token}
-                  onChange={e => setGithubExportForm(prev => ({ ...prev, token: e.target.value }))}
-                  placeholder="ghp_... or fine-grained token"
-                  style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
-                <span style={{ color: muted, fontSize: 11, fontWeight: 500 }}>Use a token with repository contents access. It is sent only for this export and is not saved.</span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, border: `1px solid ${border}`, borderRadius: 10, padding: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ color: text, fontSize: 13, fontWeight: 800 }}>
+                    {githubConnection?.connected ? `Connected as ${githubConnection.login}` : 'Connect your GitHub account'}
+                  </p>
+                  <p style={{ color: muted, fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
+                    {githubConnection?.connected ? 'Exports will use your connected account.' : 'Connect once, then export without pasting tokens.'}
+                  </p>
+                </div>
+                {githubConnection?.connected ? (
+                  <button onClick={disconnectGitHub}
+                    style={{ border: `1px solid ${border}`, background: 'transparent', color: muted, borderRadius: 8, padding: '7px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                    Disconnect
+                  </button>
+                ) : (
+                  <button onClick={startGitHubConnect}
+                    disabled={githubConnecting}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: '#24292f', color: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 800, cursor: githubConnecting ? 'default' : 'pointer', flexShrink: 0, opacity: githubConnecting ? 0.7 : 1 }}>
+                    {githubConnecting ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Github size={12} />}
+                    Connect
+                  </button>
+                )}
+              </div>
+
+              {!githubConnection?.connected && (
+                <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
+                  Or paste a GitHub token
+                  <input type="password" value={githubExportForm.token}
+                    onChange={e => setGithubExportForm(prev => ({ ...prev, token: e.target.value }))}
+                    placeholder="ghp_... or fine-grained token"
+                    style={{ background: d ? '#111' : '#fff', border: `1px solid ${border}`, color: text, borderRadius: 9, padding: '9px 10px', fontSize: 13, outline: 'none' }} />
+                  <span style={{ color: muted, fontSize: 11, fontWeight: 500 }}>Fallback only. The token is sent for this export and is not saved.</span>
+                </label>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <label style={{ display: 'grid', gap: 5, fontSize: 12, color: text, fontWeight: 700 }}>
@@ -2761,8 +2848,8 @@ ${answerText}`
                 Close
               </button>
               <button onClick={exportProjectToGitHub}
-                disabled={githubExporting || !githubExportForm.token || !githubExportForm.owner || !githubExportForm.repo}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 9, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 800, cursor: githubExporting ? 'default' : 'pointer', opacity: githubExporting || !githubExportForm.token || !githubExportForm.owner || !githubExportForm.repo ? 0.65 : 1 }}>
+                disabled={githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 13px', borderRadius: 9, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 800, cursor: githubExporting ? 'default' : 'pointer', opacity: githubExporting || (!githubConnection?.connected && !githubExportForm.token) || !githubExportForm.owner || !githubExportForm.repo ? 0.65 : 1 }}>
                 {githubExporting ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Github size={13} />}
                 {githubExporting ? 'Exporting...' : 'Export'}
               </button>
