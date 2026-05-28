@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import BrandLoader from '../components/BrandLoader'
 import {
   Activity, CheckCircle2, CreditCard, ExternalLink, FileCode, GitBranch, Home,
-  Loader2, LogOut, Moon, Plus, Settings, Sparkles, Sun, Trash2, User, Zap
+  LogOut, Moon, Plus, Settings, Sparkles, Sun, Trash2, User, Zap
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -336,7 +337,7 @@ export default function Dashboard() {
         `${projects.length} project${projects.length !== 1 ? 's' : ''} in your workspace`,
         <button onClick={createProject} disabled={creating}
           style={{ ...primaryButton, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: creating ? 0.7 : 1 }}>
-          {creating ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Plus size={14} />} {creating ? 'Creating...' : 'New project'}
+          {creating ? <BrandLoader label="" size={20} /> : <Plus size={14} />} {creating ? 'Creating...' : 'New project'}
         </button>
       )}
 
@@ -356,8 +357,8 @@ export default function Dashboard() {
       </div>
 
       {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} style={{ ...card, minHeight: 128, padding: 16, background: colors.faint }} />)}
+        <div style={{ ...card, minHeight: 180, display: 'grid', placeItems: 'center' }}>
+          <BrandLoader label="Loading projects" tone={d ? 'dark' : 'light'} size={42} />
         </div>
       ) : projects.length === 0 ? (
         <div style={{ ...card, padding: 36, textAlign: 'center' }}>

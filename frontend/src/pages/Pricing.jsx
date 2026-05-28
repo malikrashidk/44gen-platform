@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Check, ChevronDown, Loader2, Zap } from 'lucide-react'
+import { Check, ChevronDown, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import BrandLoader from '../components/BrandLoader'
 import { ParticleBackdrop, PublicButton, PublicPage } from '../components/PublicChrome'
 
 const API = import.meta.env.VITE_API_URL
@@ -140,7 +141,7 @@ export default function Pricing() {
                   <p style={{ color: '#ffca7a', fontWeight: 800, margin: '8px 0' }}>{plan.credits}</p>
                   <p style={{ color: 'rgba(246,247,251,0.55)', lineHeight: 1.65, minHeight: 52 }}>{plan.note}</p>
                   <PublicButton onClick={() => startCheckout(plan)} disabled={busy || current} variant={plan.featured ? 'primary' : 'secondary'} className="pricing-button">
-                    {busy ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> : current ? 'Current plan' : plan.cta}
+                    {busy ? <BrandLoader label="" size={22} /> : current ? 'Current plan' : plan.cta}
                   </PublicButton>
                   <div style={{ display: 'grid', gap: 12, marginTop: 24 }}>
                     {plan.features.map(feature => (

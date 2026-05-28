@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { CheckCircle2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import BrandLoader from '../components/BrandLoader'
 import { ParticleBackdrop, PublicButton, PublicPage } from '../components/PublicChrome'
 
 export default function BillingSuccess() {
@@ -22,9 +23,8 @@ export default function BillingSuccess() {
           <CheckCircle2 size={46} color="#7df1c7" />
           <h1 className="public-title" style={{ fontSize: 'clamp(34px, 6vw, 58px)', marginTop: 18 }}>Payment received.</h1>
           <p className="public-copy">Polar is syncing your subscription. Your plan and credits usually update in a few seconds.</p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, color: 'rgba(246,247,251,0.58)', marginBottom: 24 }}>
-            <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite' }} />
-            Refreshing account
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+            <BrandLoader label="Refreshing account" size={34} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
             <PublicButton onClick={() => navigate('/dashboard')}>Go to dashboard</PublicButton>

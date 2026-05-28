@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="shortcut icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>44Gen — From idea to live app in minutes</title>
     <meta name="description" content="Describe your app in plain English. 44Gen plans, builds, and deploys it to a live URL in minutes — no code required." />
@@ -15,7 +18,43 @@
     <meta name="twitter:description" content="AI-powered app builder. Describe it, build it, ship it." />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        .boot-loader {
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          background: radial-gradient(circle at 50% 42%, rgba(115,216,255,0.12), transparent 22rem), #0b0d10;
+        }
+        .boot-loader-mark {
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          display: grid;
+          place-items: center;
+          color: #f6f7fb;
+          font: 950 19px Inter, Arial, sans-serif;
+          letter-spacing: -0.08em;
+          background:
+            linear-gradient(#111820, #111820) padding-box,
+            conic-gradient(from 0deg, #73d8ff, #7df1c7, #ffca7a, #ff8fb3, #73d8ff) border-box;
+          border: 1.5px solid transparent;
+          box-shadow: 0 16px 40px rgba(115,216,255,0.20);
+          animation: boot-loader-spin 1.8s linear infinite, boot-loader-pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes boot-loader-spin {
+          to { filter: hue-rotate(360deg); }
+        }
+        @keyframes boot-loader-pulse {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-2px) scale(1.035); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .boot-loader-mark { animation: none; }
+        }
+      </style>
+      <div class="boot-loader"><div class="boot-loader-mark">44</div></div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

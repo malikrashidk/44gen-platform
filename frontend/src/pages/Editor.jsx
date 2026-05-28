@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import CodePanel from '../components/editor/CodePanel'
+import BrandLoader from '../components/BrandLoader'
 import { useGitHubExport } from '../hooks/useGitHubExport'
 import GitHubExportModal from '../components/editor/GitHubExportModal'
 import VersionHistoryModal from '../components/editor/VersionHistoryModal'
@@ -2678,8 +2679,7 @@ ${answerText}`
                 }}>
                   {iframeStatus === 'loading' && (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: d ? '#0d0d0d' : '#f0f0f0', zIndex: 1 }}>
-                      <Loader2 size={22} style={{ color: '#BC6045', animation: 'spin 0.8s linear infinite', marginBottom: 8 }} />
-                      <p style={{ fontSize: 12, color: muted }}>Loading preview...</p>
+                      <BrandLoader label="Loading preview" tone={d ? 'dark' : 'light'} size={44} />
                     </div>
                   )}
                   {iframeStatus === 'error' && (

@@ -11,6 +11,7 @@ import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import BillingSuccess from './pages/BillingSuccess'
 import ProtectedRoute from './components/ProtectedRoute'
+import BrandLoader from './components/BrandLoader'
 
 // ─── Cinematic page transition wrapper ───────────────────────────────────────
 function PageTransition({ children }) {
@@ -50,12 +51,7 @@ function App() {
   const { user, loading } = useAuth()
 
   if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#050505', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: 32, height: 32, border: '2px solid #FF6B00', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    )
+    return <BrandLoader fullScreen label="Loading 44Gen" />
   }
 
   return (
