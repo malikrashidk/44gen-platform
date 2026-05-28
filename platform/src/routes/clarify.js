@@ -3,6 +3,12 @@ import { supabase } from '../lib/supabase.js'
 import { clarifyRequest, isTemporaryGeminiError } from '../services/gemini.js'
 import { requireAuth } from '../middleware/auth.js'
 
+// #38: Validate UUID format before passing to Supabase
+function isValidUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
+
 // #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
 function isValidUUID(str) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
@@ -14,6 +20,8 @@ const router = Router()
 router.post('/', requireAuth, async (req, res) => {
   const { prompt, projectId, mode = 'plan' } = req.body
   if (!prompt?.trim()) return res.status(400).json({ error: 'Prompt is required' })
+  if (projectId && !isValidUUID(projectId))
+    return res.status(400).json({ error: 'Invalid project ID' })
   if (projectId && !isValidUUID(projectId))
     return res.status(400).json({ error: 'Invalid project ID' })
 
