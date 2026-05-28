@@ -206,7 +206,9 @@ Return ONLY valid JSON, no markdown, no backticks:
 }`
     })
 
-    const result = await model.generateContent(`User request: "${prompt}"`)
+    // #30: Don't wrap prompt in quotes — a prompt containing `"` would break the template
+    // Use a labelled block format instead; the model doesn't need the quotes
+    const result = await model.generateContent(`User request:\n${prompt}`)
     const response = await result.response
     const usage = response.usageMetadata
     const plan = normalizePlanForBuild(prompt, extractJson(response.text()))
