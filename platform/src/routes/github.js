@@ -11,10 +11,12 @@ import {
 const router = Router()
 
 function oauthSecret() {
-  return process.env.GITHUB_OAUTH_STATE_SECRET ||
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.JWT_SECRET ||
-    '44gen-dev-oauth-secret'
+  const secret = process.env.GITHUB_OAUTH_STATE_SECRET
+  if (!secret) {
+    console.warn('[GitHub OAuth] GITHUB_OAUTH_STATE_SECRET is not set. Set a dedicated secret in .env.')
+  }
+  // Do NOT fall back to SUPABASE_SECRET_KEY — that key is used in other contexts (secret reuse risk).
+  return secret || '44gen-dev-oauth-secret-CHANGE-IN-PRODUCTION'
 }
 
 function signState(payload) {
@@ -141,3 +143,4 @@ router.delete('/connection', requireAuth, async (req, res) => {
 })
 
 export default router
+
