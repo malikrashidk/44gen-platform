@@ -1001,8 +1001,27 @@ Requirements:
   }
 
   // Visual editor: listen for element selection from iframe
+  // FIX #16: deps changed from [loading] to [] — [loading] caused the listener to be
+  // removed and re-added on every loading state flip, creating a window where messages
+  // could be silently dropped. Use a stable ref callback pattern instead.
+  const handleFixErrorRef = useRef(null)
+  useEffect(() => { handleFixErrorRef.current = handleFixError }, [loading])
+
   useEffect(() => {
     const handleMessage = (e) => {
+      // FIX #1: Validate message origin — only accept postMessages from our own preview subdomains
+      // or same origin. Without this, any page open in the browser can trigger handleFixError()
+      // which starts a real AI build job and deducts real credits.
+      const allowedOrigins = [
+        window.location.origin,
+        // Accept *.44gen.com preview subdomains
+        ...(e.origin?.endsWith('.44gen.com') ? [e.origin] : [])
+      ]
+      const isTrustedOrigin = allowedOrigins.includes(e.origin) ||
+        (typeof e.origin === 'string' && e.origin.endsWith('.44gen.com'))
+
+      if (!isTrustedOrigin) return
+
       if (e.data?.type === '__44gen_element_selected__') {
         const el = e.data
         setSelectedElement(el)
@@ -1025,12 +1044,13 @@ Requirements:
         })
       }
       if (e.data?.type === '__44gen_runtime_error_fix__') {
-        handleFixError({ details: e.data.details })
+        // Use ref so this always calls the latest version of handleFixError
+        handleFixErrorRef.current?.({ details: e.data.details })
       }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [loading])
+  }, [])  // FIX #16: stable [] — handleFixError accessed via ref above
 
   const toggleVisualEdit = () => {
     if (!previewUrl) return
@@ -2900,3 +2920,4 @@ ${answerText}`
     </div>
   )
 }
+
