@@ -5,13 +5,9 @@
 	}
 }
 
-# ── 44gen.com main platform ───────────────────────────────────────────────────
 44gen.com {
 	tls /etc/letsencrypt/live/44gen.com/fullchain.pem /etc/letsencrypt/live/44gen.com/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
@@ -22,25 +18,17 @@ www.44gen.com {
 	redir https://44gen.com{uri} 301
 }
 
-# ── *.44gen.com user apps ─────────────────────────────────────────────────────
 *.44gen.com {
 	tls /etc/letsencrypt/live/44gen.com/fullchain.pem /etc/letsencrypt/live/44gen.com/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
 }
 
-# ── tooltrace.io ──────────────────────────────────────────────────────────────
 tooltrace.io {
 	tls /etc/letsencrypt/live/tooltrace.io/fullchain.pem /etc/letsencrypt/live/tooltrace.io/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
@@ -53,22 +41,15 @@ www.tooltrace.io {
 
 app.tooltrace.io {
 	tls /etc/letsencrypt/live/app.tooltrace.io/fullchain.pem /etc/letsencrypt/live/app.tooltrace.io/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
 }
 
-# ── aurixcollection.com ───────────────────────────────────────────────────────
 aurixcollection.com {
 	tls /etc/letsencrypt/live/aurixcollection.com/fullchain.pem /etc/letsencrypt/live/aurixcollection.com/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
@@ -79,7 +60,6 @@ www.aurixcollection.com {
 	redir https://aurixcollection.com{uri} 301
 }
 
-# ── aurix subdomains (HTTP only, Caddy auto HTTP→HTTPS redirect) ──────────────
 abdullah.aurixcollection.com,
 aftab.aurixcollection.com,
 ahmad.aurixcollection.com,
@@ -91,31 +71,22 @@ uzair.aurixcollection.com {
 	}
 }
 
-# ── download.aethersx2apk.pro ─────────────────────────────────────────────────
 download.aethersx2apk.pro {
 	tls /etc/letsencrypt/live/download.aethersx2apk.pro/fullchain.pem /etc/letsencrypt/live/download.aethersx2apk.pro/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
 }
 
-# ── my.44gen.com ──────────────────────────────────────────────────────────────
 my.44gen.com {
 	tls /etc/letsencrypt/live/my.44gen.com/fullchain.pem /etc/letsencrypt/live/my.44gen.com/privkey.pem
-	reverse_proxy localhost:8443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
+	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
 }
 
-# ── Custom domains — on-demand TLS ───────────────────────────────────────────
 :443 {
 	tls {
 		on_demand
@@ -127,7 +98,6 @@ my.44gen.com {
 	}
 }
 
-# ── HTTP → HTTPS redirect + ACME challenge ───────────────────────────────────
 :80 {
 	handle /.well-known/acme-challenge/* {
 		reverse_proxy localhost:4000
