@@ -39,6 +39,16 @@ export default function Editor() {
   const [previewDevice, setPreviewDevice] = useState('desktop')
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPublishPanel, setShowPublishPanel] = useState(false)
+  // Publish flow
+  const [publishLoading, setPublishLoading] = useState(false)
+  const [publishError, setPublishError] = useState('')
+  // Custom domains
+  const [domains, setDomains] = useState([])
+  const [showDomainInput, setShowDomainInput] = useState(false)
+  const [domainInput, setDomainInput] = useState('')
+  const [domainSaving, setDomainSaving] = useState(false)
+  const [domainError, setDomainError] = useState('')
+  const [domainInstructions, setDomainInstructions] = useState(null)
   const [secrets, setSecrets] = useState([])
   const [secretsLoading, setSecretsLoading] = useState(false)
   const [newSecretKey, setNewSecretKey] = useState('')
