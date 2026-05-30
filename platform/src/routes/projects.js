@@ -6,6 +6,7 @@ import AdmZip from 'adm-zip'
 import { requireAuth } from '../middleware/auth.js'
 import { processJob } from '../services/worker.js'
 import { normalizeGeneratedFilePath, sanitizeGeneratedFiles } from '../services/fileSafety.js'
+import { publishRelease, pruneReleases } from '../services/builder.js'
 import { getGithubAccessToken, githubRequest } from '../services/githubAuth.js'
 import { runRuntimeQa } from '../services/runtimeQa.js'
 
@@ -589,6 +590,40 @@ router.post('/:projectId/versions/:versionId/rollback', requireAuth, async (req,
     console.error('[Projects] Rollback failed:', err)
     if (err.status) return res.status(err.status).json({ error: err.message })
     res.status(500).json({ error: err.message || 'Rollback failed' })
+  }
+})
+
+router.post('/:projectId/publish', requireAuth, async (req, res) => {
+  const { projectId } = req.params
+  if (!isValidUUID(projectId)) return res.status(400).json({ error: 'Invalid project ID' })
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id, user_id, subdomain, status, latest_release, published_release')
+    .eq('id', projectId)
+    .eq('user_id', req.user.id)
+    .single()
+
+  if (!project) return res.status(404).json({ error: 'Project not found' })
+
+  const releaseNum = req.body?.release_num || project.latest_release
+  if (!releaseNum) return res.status(400).json({ error: 'No release to publish' })
+
+  try {
+    const result = publishRelease(projectId, releaseNum)
+
+    await supabase.from('projects').update({
+      status: 'deployed',
+      published_release: releaseNum,
+      deployed_at: new Date().toISOString()
+    }).eq('id', projectId)
+
+    pruneReleases(projectId, 5)
+
+    res.json({ success: true, subdomain: result.subdomain, releaseNum: result.releaseNum })
+  } catch (err) {
+    console.error('[Projects] Publish failed:', err)
+    res.status(err.status || 500).json({ error: err.message || 'Publish failed' })
   }
 })
 
