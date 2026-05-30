@@ -1775,7 +1775,7 @@ ${answerText}`
       const Icon = c.phase === 'code' ? Edit : c.phase === 'done' ? CheckCircle2 : Sparkles
 
       return (
-        <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 2px', minWidth: 0 }}>
+        <div key={msg.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 13, padding: '2px 2px', animation: 'msgFadeIn 0.35s ease both', minWidth: 0 }}>
           <Icon size={15} style={{ color: iconColor, flexShrink: 0 }} />
           <span className={c.phase === 'done' ? '' : 'streaming-heading'} style={{
             minWidth: 0,
@@ -1791,14 +1791,14 @@ ${answerText}`
     }
 
     if (msg.type === 'status') return (
-      <div key={msg.id} style={{ color: muted, fontSize: 13, padding: '2px 0' }}>
+      <div key={msg.id} style={{ color: muted, fontSize: 13, padding: '2px 0', animation: 'msgFadeIn 0.35s ease both' }}>
         {msg.content}
       </div>
     )
 
     if (msg.type === 'thought') return (
-      <div key={msg.id} style={{ color: muted, fontSize: 12, lineHeight: 1.5, fontStyle: 'italic', padding: '2px 2px' }}>
-        <span style={{ opacity: 0.9 }}>{msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content}</span>
+      <div key={msg.id} style={{ color: muted, fontSize: 12, lineHeight: 1.5, fontStyle: 'italic', padding: '2px 2px', animation: 'msgFadeIn 0.35s ease both' }}>
+        <span style={{ opacity: 0.85 }}>{msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content}</span>
       </div>
     )
 
@@ -1831,7 +1831,7 @@ ${answerText}`
     }
 
     if (msg.type === 'build_step') return (
-      <div key={msg.id} style={{ color: muted, fontSize: 12, padding: '2px 0' }}>
+      <div key={msg.id} style={{ color: muted, fontSize: 12, padding: '2px 0', animation: 'msgFadeIn 0.3s ease both' }}>
         {msg.content}
       </div>
     )
@@ -3208,6 +3208,10 @@ ${answerText}`
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes msgFadeIn {
+          from { opacity: 0; transform: translateY(6px) }
+          to   { opacity: 1; transform: translateY(0) }
+        }
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         @keyframes streamShimmer {
           0% { background-position: 120% 0; opacity: 0.72; }
