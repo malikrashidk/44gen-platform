@@ -95,36 +95,16 @@ function inferRepairTargetPath(error, files = []) {
   return files.find(f => f.path === 'src/App.jsx')?.path || files[0]?.path || 'src/App.jsx'
 }
 
-function shouldAllowPhases(prompt, plan) {
-  const text = `${prompt || ''} ${plan?.understanding || ''}`.toLowerCase()
-  if (/\b(phase|phases|multi-phase|staged|roadmap|milestone|step by step|incremental)\b/i.test(text)) return true
-  const complexitySignals = [
-    /\b(auth|login|signup|roles?|permissions?)\b/,
-    /\b(database|backend|api|server|supabase)\b/,
-    /\b(payment|checkout|subscription|billing)\b/,
-    /\b(real[-\s]?time|notifications?|chat|messaging)\b/,
-    /\b(admin|customer|client|vendor|staff|team)\s+(portal|dashboard|panel)\b/,
-    /\b(crm|erp|marketplace|booking|calendar|inventory)\b/,
-    /\b(upload|storage|files?|documents?)\b/,
-    /\b(analytics|reports?|charts?)\b/,
-  ]
-  const score = complexitySignals.reduce((n, p) => n + (p.test(text) ? 1 : 0), 0)
-  return score >= 4 && String(prompt || '').length > 220
-}
-
 function normalizePlanForBuild(prompt, plan) {
-  const allowPhases = shouldAllowPhases(prompt, plan)
-  const normalized = { ...plan, current_phase: 1, allow_phases: allowPhases }
-  if (allowPhases && Number(plan.total_phases) > 1 && Array.isArray(plan.phases)) return normalized
-  const phaseSteps = Array.isArray(plan.phases)
-    ? plan.phases.flatMap(p => p?.steps || p?.description || []).filter(Boolean)
-    : []
+  // Phases removed — single build per request with 8-file cap. Steps capped at 10.
   return {
-    ...normalized,
-    is_complex: false,
+    ...plan,
+    current_phase: 1,
     total_phases: 1,
+    allow_phases: false,
+    is_complex: false,
     phases: null,
-    steps: (plan.steps?.length ? plan.steps : phaseSteps).slice(0, 10),
+    steps: (plan.steps || []).slice(0, 10),
   }
 }
 
@@ -164,24 +144,17 @@ Your plan must cover ONLY what is new or changing — never re-plan what already
 - steps[]: describe only the new work, referencing existing component names by their actual names
 - files[]: list only files to be created or modified — not the entire project
 
-━━━ COMPLEXITY RULES ━━━
-Use exactly one phase for virtually everything. Phases exist only for genuinely large multi-stage projects.
+━━━ SCOPE AND FILE BUDGET ━━━
+Each build generates a maximum of 8 files, mapping to approximately 80,000 output tokens.
 
-ONE phase (default for all of these):
-— Landing pages, SaaS marketing sites, any number of sections
-— Dashboards with sidebar, multiple pages, charts, tables, modals
-— CRMs, admin panels, management interfaces
-— Portfolios, personal sites
-— E-commerce product pages, carts
-— Tools, calculators, generators
-— Any app the user can describe in one sentence, even if complex to implement
+Plan the scope to fit within 8 files. If the full request needs more:
+— Build the most important end-to-end slice completely — fully working, no stubs
+— Choose files that deliver the highest value core product
+— The code generator will include clear in-app messaging about what is ready and what comes next
+— The user can say "continue" to build the remaining parts in the next build
 
-MULTIPLE phases — use only when ALL of the following are true:
-— The user explicitly requests phases, stages, or a roadmap
-— The app genuinely spans 10+ distinct screens/views across multiple user roles
-— Implementing phase 1 independently delivers a useful, complete product
-
-When uncertain: always choose one phase. Never create phases to manage scope — that is the developer's job, not the planner's.
+One build should always deliver something immediately useful and shippable.
+Never plan more than 8 files regardless of app complexity.
 
 ━━━ PLAN QUALITY BAR ━━━
 Every step must be specific enough for an expert developer to write exact code from it.
@@ -239,10 +212,6 @@ app_name: 2–5 words, title case, max 36 characters, no special characters.
   "app_name": "Title Case Name",
   "app_category": "dashboard",
   "color_theme": "light",
-  "is_complex": false,
-  "total_phases": 1,
-  "current_phase": 1,
-  "allow_phases": false,
   "steps": [
     "Specific, actionable step with component names, exact data fields, layout details, and visible behaviors"
   ],
@@ -628,10 +597,7 @@ export async function generateCodeStream(plan, phase, onChunk, onThought, vision
       systemInstruction: CODE_GEN_SYSTEM,
     })
 
-    const hasAllowedPhases = plan.allow_phases === true && Number(plan.total_phases) > 1 && Array.isArray(plan.phases)
-    const steps = hasAllowedPhases
-      ? plan.phases?.[phase - 1]?.steps?.join('\n')
-      : plan.steps?.join('\n')
+    const steps = (plan.steps || []).join('\n')
 
     const category = plan.app_category || 'general'
     const colorTheme = plan.color_theme || 'light'
@@ -653,10 +619,14 @@ Build: ${plan.understanding}
 Steps:
 ${steps}
 ${isMultiFile
-  ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files.join('\n')}`
+  ? `\nFiles to generate — maximum 8 files (use ===FILE:path=== format):\n${plan.files.join('\n')}`
   : '\nOutput format: single file (no ===FILE:=== delimiters)'}
 ${existingContext
   ? `\nExisting project context:\n${existingContext}\n\nRefinement rules:\n— Preserve all existing files and features unless explicitly asked to remove them\n— Return only changed files using ===FILE:path=== delimiters\n— CRITICAL: If you create a new file (e.g. src/components/Toggle.jsx), you MUST also return the file that imports it (e.g. App.jsx) with the import added — even if App.jsx had no other changes. A new file nothing imports is dead code.\n— Keep imports consistent with the final file structure\n— Do not re-generate files that are truly unchanged`
+  : ''}
+
+${plan.secret_keys?.length
+  ? `\nUser has configured these API secret keys for this project (available as import.meta.env.VITE_{KEY_NAME}): ${plan.secret_keys.join(', ')}\nUse these env vars in generated code wherever the relevant API needs authentication.`
   : ''}
 
 Quality target: This must look and behave like ${qualityLabel}. The first screen must be immediately impressive — professional layout, realistic content, every primary interaction working. Not a demo. Not a scaffold. A product.`
