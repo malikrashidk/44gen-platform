@@ -224,6 +224,12 @@ Default to "light" for all apps unless:
 — Domain strongly suggests it (code editor, terminal tool, night-mode tool)
 Never default to dark based on the app category alone.
 
+━━━ OUT_OF_SCOPE GUIDANCE ━━━
+Only add to out_of_scope[] when the user expects a feature requiring a real backend, database, or third-party service that cannot be simulated in the browser.
+Leave it empty for fully buildable frontend requests — do not pad with obvious caveats.
+✓ Correct: ["User authentication — auth UI will be built with local state; real sessions require a backend"]
+✗ Wrong: ["Data persistence — localStorage used"] — localStorage is a normal frontend pattern, not a limitation
+
 ━━━ OUTPUT ━━━
 Return ONLY valid JSON. No markdown, no backticks, no explanation outside the JSON.
 app_name: 2–5 words, title case, max 36 characters, no special characters.
@@ -244,7 +250,18 @@ app_name: 2–5 words, title case, max 36 characters, no special characters.
   "questions": [],
   "out_of_scope": ["Feature X — will be mocked with local state; real backend needed for production"],
   "phases": null
-}`
+}
+
+For multi-phase apps (allow_phases: true, total_phases > 1), replace "phases": null with:
+"phases": [
+  {
+    "phase": 1,
+    "title": "Short phase title",
+    "description": "What this phase delivers as a standalone product",
+    "steps": ["Specific actionable step 1", "Specific actionable step 2"],
+    "files": ["src/App.jsx"]
+  }
+]`
 
 export async function generatePlan(prompt, existingFiles = []) {
   return withModelFallback(async (modelName) => {
@@ -346,7 +363,7 @@ Return ONLY valid JSON. No markdown, no backticks, no text outside the JSON.
 {
   "action": "answer" | "questions" | "proceed",
   "answer": "Full expert response when action is answer. Empty string otherwise. Write in natural paragraphs. No bullet points. No filler phrases.",
-  "refined_prompt": "Clarified, specific version of the user's request when action is proceed or questions. Empty string when action is answer.",
+  "refined_prompt": "Clarified, specific version of the user's request for action=proceed or action=questions. Transform vague language into specific, buildable instructions. Example: \"make it dark\" → \"Add a dark/light mode toggle to the navbar. Default to light mode. Persist preference in localStorage. Apply by toggling Tailwind dark-mode classes on the root element.\" Empty string when action is answer.",
   "questions": [
     {
       "id": "snake_case_id",
@@ -525,7 +542,7 @@ Contact: Simple form (name, email, message) with a real submit handler that show
 E-COMMERCE:
 Header: Logo, search bar, cart icon with animated count badge, category nav
 Product grid: 4 columns (2 on mobile), each card: image (picsum.photos), product name, price, star rating (5 stars, realistic decimal), Add to Cart button
-Filter sidebar: Category checkboxes, price range slider, sort dropdown
+Filter bar: horizontal category chips above the product grid — a flex row of pill buttons (not a sidebar). Price range and sort can be added as dropdowns in the same row.
 Cart drawer: Slides in from right, lists items, quantity controls, subtotal, checkout button
 
 ━━━ RECHARTS — MANDATORY RULES ━━━
@@ -547,9 +564,12 @@ Never render a recharts component outside of ResponsiveContainer.
 Always import only icons that appear in the allowed list below — if you need an icon not listed, use the closest available alternative from the list.
 
 ━━━ ALLOWED LUCIDE ICONS ━━━
-Home, User, Users, Settings, Search, Menu, X, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Minus, Edit, Trash2, Save, Download, Upload, Eye, EyeOff, Lock, Mail, Phone, Calendar, Clock, Star, Heart, Share, Copy, ExternalLink, AlertCircle, Info, CheckCircle, Loader, RefreshCw, ArrowLeft, ArrowRight, LogIn, LogOut, Bell, Filter, Grid, List, BarChart2, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Globe, Sun, Moon, Code, Activity, Zap, Send, MessageCircle, Shield, Package, FileText, Briefcase, MapPin, CreditCard, Layers, Cpu, Database, GitBranch, Terminal, Hash, Inbox, Bookmark, Tag, Award, Target, PieChart, LayoutDashboard, Sparkles, Wand2, Rocket, Building, Building2, Store, Wallet, Receipt, BarChart, LineChart, Image, Video, Music, Headphones, Mic, Camera, Link, Unlink, Lock, Unlock, Key, Fingerprint, Eye, EyeOff, Slash, Flag, Navigation, Compass, Map
+This list is sourced directly from lucide-react@0.460.0 (the exact version in the build template).
+Import ONLY icons from this list — any other name will cause a build error.
+Do NOT use the "Icon" suffix variant (use "Trash2" not "Trash2Icon").
+If you need an icon not listed, substitute the closest match.
 
-If you need an icon not listed here, substitute the closest available icon from this list. Never import an unlisted icon name — it will cause a build error.
+Activity, AlarmClock, AlertCircle, AlertTriangle, AreaChart, Award, Banknote, BarChart, BarChart2, BarChart3, BarChart4, BarChartBig, Bell, BellDot, BellOff, BellPlus, BellRing, Bolt, Bookmark, BookmarkCheck, BookmarkPlus, Briefcase, BriefcaseBusiness, BriefcaseMedical, Building, Building2, Calendar, CalendarCheck, CalendarCheck2, CalendarClock, CalendarDays, CalendarOff, CalendarPlus, Camera, CameraOff, ChartArea, ChartBar, ChartLine, ChartPie, ChartScatter, Check, CheckCheck, CheckCircle, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsLeft, ChevronsRight, ChevronsUp, ChevronsUpDown, CircleAlert, CircleCheck, CircleCheckBig, CircleHelp, CircleUser, CircleUserRound, Clock, Code, Code2, Coins, Compass, Copy, CopyCheck, Cpu, CreditCard, Database, DatabaseZap, DollarSign, Download, Edit, Edit2, Edit3, Expand, ExternalLink, Eye, EyeClosed, EyeOff, FileText, Filter, FilterX, Fingerprint, Flag, Flame, Folder, FolderOpen, FolderPlus, Forward, Gauge, GitBranch, GitBranchPlus, GitCommitHorizontal, GitFork, GitMerge, GitPullRequest, Globe, Globe2, Grip, GripHorizontal, GripVertical, Hash, Headphones, Heart, HeartOff, HeartPulse, HelpCircle, History, Home, Hourglass, Image, ImageOff, ImagePlus, Images, Inbox, IndianRupee, Info, Key, KeyRound, Landmark, Laptop, Laptop2, LaptopMinimal, Layers, Layers2, Layers3, LayoutDashboard, LayoutGrid, LayoutList, LayoutPanelLeft, LineChart, Link, Link2, Link2Off, Loader, Loader2, LoaderCircle, Lock, LockKeyhole, LockOpen, LogIn, LogOut, Mail, MailCheck, MailOpen, MailPlus, MailWarning, Map, MapPin, MapPinOff, Maximize, Maximize2, Medal, Menu, MessageCircle, MessageCircleMore, MessageCirclePlus, MessageCircleX, MessageSquare, MessageSquarePlus, MessageSquareText, Mic, MicOff, Minimize, Minimize2, Minus, Monitor, Moon, MoreHorizontal, MoreVertical, Music, Navigation, Navigation2, Network, Package, Package2, PackageCheck, PackagePlus, Palette, PanelBottom, PanelLeft, PanelRight, PanelTop, Paperclip, Pen, PenLine, PenTool, Pencil, PencilLine, Percent, Phone, PhoneCall, PhoneOff, PieChart, PiggyBank, Plus, PlusCircle, Power, PowerOff, QrCode, Receipt, Redo, Redo2, RefreshCcw, RefreshCw, Reply, ReplyAll, Rocket, RotateCcw, RotateCw, Save, SaveAll, Scan, Search, SearchCheck, SearchX, Send, SendHorizontal, Server, Settings, Settings2, Share, Share2, Shield, ShieldAlert, ShieldCheck, ShieldOff, ShoppingBag, ShoppingBasket, ShoppingCart, Sidebar, SidebarClose, SidebarOpen, Slash, Sliders, SlidersHorizontal, SlidersVertical, Smartphone, SmartphoneCharging, Sparkle, Sparkles, Square, Star, StarHalf, StarOff, Store, Sun, SunMoon, Tag, Tags, Target, Terminal, Timer, TimerOff, TimerReset, ToggleLeft, ToggleRight, Trash, Trash2, TrendingDown, TrendingUp, TrendingUpDown, Trophy, Undo, Undo2, Unlock, Upload, User, UserCheck, UserCog, UserMinus, UserPen, UserPlus, UserRound, UserRoundCheck, UserRoundCog, UserRoundMinus, UserRoundPlus, Users, UsersRound, Video, VideoOff, Volume, Volume1, Volume2, VolumeX, Wallet, Wallet2, WalletCards, Wand, Wand2, WandSparkles, Warehouse, Watch, Webhook, Wrench, Zap, ZapOff, ZoomIn, ZoomOut
 
 ━━━ WHAT TO AVOID ━━━
 ✗ Wireframe-looking unstyled inputs — every input must be properly styled
@@ -636,7 +656,7 @@ ${isMultiFile
   ? `\nFiles to generate (use ===FILE:path=== format):\n${plan.files.join('\n')}`
   : '\nOutput format: single file (no ===FILE:=== delimiters)'}
 ${existingContext
-  ? `\nExisting project context:\n${existingContext}\n\nRefinement rules:\n— Preserve all existing files and features unless explicitly asked to remove them\n— Return only changed files using ===FILE:path=== delimiters\n— Keep imports consistent with the final file structure\n— Do not re-generate unchanged files`
+  ? `\nExisting project context:\n${existingContext}\n\nRefinement rules:\n— Preserve all existing files and features unless explicitly asked to remove them\n— Return only changed files using ===FILE:path=== delimiters\n— CRITICAL: If you create a new file (e.g. src/components/Toggle.jsx), you MUST also return the file that imports it (e.g. App.jsx) with the import added — even if App.jsx had no other changes. A new file nothing imports is dead code.\n— Keep imports consistent with the final file structure\n— Do not re-generate files that are truly unchanged`
   : ''}
 
 Quality target: This must look and behave like ${qualityLabel}. The first screen must be immediately impressive — professional layout, realistic content, every primary interaction working. Not a demo. Not a scaffold. A product.`
@@ -741,9 +761,13 @@ REPAIR RULES:
 — Do not include HTML documents, script tags, or ReactDOM render calls`,
     })
 
+    const stepsContext = Array.isArray(plan.steps) && plan.steps.length
+      ? `\n\nOriginal build plan (what this app should do):\n${plan.steps.slice(0, 6).join('\n')}`
+      : ''
+
     const prompt = `Build request: ${plan.understanding}
 App name: ${plan.app_name || 'App'}
-Repair attempt: ${attempt}
+Repair attempt: ${attempt}${stepsContext}
 
 Vite build error:
 ${String(error).slice(0, 6000)}
@@ -782,7 +806,7 @@ Return ONLY valid JSON. No markdown, no backticks.
 
 QUALITY RULES:
 — message: 2-4 sentences. Name the actual app, features, and interactions. Tell the user exactly what they can do right now. Write as if you built it and are handing it over. Example: "Your CRM dashboard is live. It has a working pipeline with 3 stages, a contacts table you can add to and filter, and a metrics row showing total deals, revenue, and conversion rate — all updating as you interact. I've seeded it with 8 sample contacts and 5 deals so you can see everything working immediately."
-— what_works: specific, concrete user-facing capabilities. Not file names. Not technical terms. What the user can actually DO. 3-5 items.
+— what_works: specific, concrete user-facing capabilities. Not file names. Not technical terms. What the user can actually DO. List every meaningful capability the app has — aim for completeness. If 8 things work well, list all 8.
 — suggested_next: 1-2 natural continuation prompts the user could paste directly into chat. Make them specific to this app.
 — Never mention file names, component names, hooks, or any implementation detail in message or what_works
 — Never use bullet-point language like "✓ Feature added" — write what the feature does
