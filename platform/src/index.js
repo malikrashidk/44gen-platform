@@ -13,6 +13,8 @@ import clarifyRoute from './routes/clarify.js'
 import imagesRoute from './routes/images.js'
 import githubRoute from './routes/github.js'
 import { billingRouter, polarWebhookHandler } from './routes/billing.js'
+import secretsRoute from './routes/secrets.js'
+import domainsRoute from './routes/domains.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -58,6 +60,8 @@ app.use('/api/projects', projectsRoute)
 app.use('/api/clarify', planLimiter, clarifyRoute)
 app.use('/api/images', imagesRoute)
 app.use('/api/github', githubRoute)
+app.use('/api/secrets', secretsRoute)
+app.use('/api/domains', domainsRoute)
 app.use('/api/billing', billingRouter)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
