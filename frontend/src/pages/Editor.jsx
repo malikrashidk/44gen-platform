@@ -12,7 +12,7 @@ import {
   Code, Eye, Sun, Moon, Loader2, ExternalLink, Sparkles,
   AlertCircle, CheckCircle2, RefreshCw, Monitor, Smartphone,
   Share, LogOut, Activity, FileCode, Edit, MessageSquare, RefreshCcw,
-  Plus, Copy, Shield
+  Plus, Copy, Shield, Key, Trash2, Save, EyeOff, Info
 } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL
@@ -39,6 +39,14 @@ export default function Editor() {
   const [previewDevice, setPreviewDevice] = useState('desktop')
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showPublishPanel, setShowPublishPanel] = useState(false)
+  const [secrets, setSecrets] = useState([])
+  const [secretsLoading, setSecretsLoading] = useState(false)
+  const [newSecretKey, setNewSecretKey] = useState('')
+  const [newSecretVal, setNewSecretVal] = useState('')
+  const [secretSaving, setSecretSaving] = useState(false)
+  const [secretError, setSecretError] = useState('')
+  const [secretSuccess, setSecretSuccess] = useState('')
+  const [showSecretVal, setShowSecretVal] = useState(false)
   const [showChat, setShowChat] = useState(true)
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState('')
@@ -142,6 +150,7 @@ export default function Editor() {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => { if (projectId) { loadConversations(); loadBuildProgress(); checkActiveBuildJob() } }, [projectId])
   useEffect(() => { if (projectId && activeTab === 'code') loadProjectFiles() }, [projectId, activeTab])
+  useEffect(() => { if (projectId && activeTab === 'secrets') loadSecrets() }, [projectId, activeTab])
   useEffect(() => {
     if (project?.status === 'deployed') setPromptMode('build')
   }, [project?.status])
@@ -283,6 +292,54 @@ export default function Editor() {
       setSelectedCodeFile('src/App.jsx')
     }
     setMessages(loaded)
+  }
+
+  const loadSecrets = async () => {
+    if (!projectId || !sessionRef.current?.access_token) return
+    setSecretsLoading(true)
+    try {
+      const res = await fetch(`${API}/api/secrets/${projectId}`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (res.ok) setSecrets(data.secrets || [])
+    } catch {}
+    setSecretsLoading(false)
+  }
+
+  const saveSecret = async () => {
+    const key = newSecretKey.trim().toUpperCase().replace(/\s+/g, '_')
+    const val = newSecretVal.trim()
+    if (!key || !val) { setSecretError('Both key name and value are required.'); return }
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) {
+      setSecretError('Key name must start with a letter and contain only letters, numbers, and underscores.')
+      return
+    }
+    setSecretSaving(true); setSecretError(''); setSecretSuccess('')
+    try {
+      const res = await fetch(`${API}/api/secrets/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionRef.current.access_token}` },
+        body: JSON.stringify({ key_name: key, value: val })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      setNewSecretKey(''); setNewSecretVal(''); setShowSecretVal(false)
+      setSecretSuccess(`${key} saved. Rebuild your app to apply it.`)
+      await loadSecrets()
+    } catch (err) { setSecretError(err.message) }
+    setSecretSaving(false)
+  }
+
+  const deleteSecret = async (keyName) => {
+    if (!window.confirm(`Delete secret "${keyName}"? This cannot be undone.`)) return
+    try {
+      await fetch(`${API}/api/secrets/${projectId}/${keyName}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      setSecrets(prev => prev.filter(s => s.key_name !== keyName))
+    } catch {}
   }
 
   const loadProjectFiles = async () => {
@@ -2615,6 +2672,7 @@ ${answerText}`
                 { id: 'preview', icon: <Eye size={12} />, label: 'Preview' },
                 { id: 'code', icon: <Code size={12} />, label: 'Code' },
                 { id: 'details', icon: <Activity size={12} />, label: 'Details', badge: detailsLog.length },
+                { id: 'secrets', icon: <Key size={12} />, label: 'Secrets', badge: secrets.length || undefined },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                   style={{
@@ -2947,6 +3005,76 @@ ${answerText}`
                       <Loader2 size={10} style={{ animation: 'spin 0.8s linear infinite', color: '#BC6045' }} /> Working...
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+          {activeTab === 'secrets' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'rgba(188,96,69,0.07)', border: '1px solid rgba(188,96,69,0.18)', borderRadius: 10, padding: '10px 12px', marginBottom: 20 }}>
+                <Info size={14} style={{ color: '#BC6045', flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 12, color: d ? '#d4d4d4' : '#5c4a3a', lineHeight: 1.55, margin: 0 }}>
+                  Secrets are encrypted and injected as <code style={{ background: d ? '#2a2a2a' : '#f0ece6', borderRadius: 3, padding: '1px 4px', fontSize: 11 }}>import.meta.env.VITE_KEY_NAME</code> at build time. Values are never shown after saving. <strong>Rebuild your app after adding or changing a secret.</strong>
+                </p>
+              </div>
+              <p style={{ fontSize: 12, fontWeight: 800, color: text, marginBottom: 10 }}>Add secret</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                <input
+                  placeholder="KEY_NAME (e.g. STRIPE_KEY)"
+                  value={newSecretKey}
+                  onChange={ev => { setNewSecretKey(ev.target.value.toUpperCase().replace(/\s+/g, '_')); setSecretError(''); setSecretSuccess('') }}
+                  style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${border}`, background: subtle, color: text, fontSize: 13, fontFamily: 'monospace', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showSecretVal ? 'text' : 'password'}
+                    placeholder="Value"
+                    value={newSecretVal}
+                    onChange={ev => { setNewSecretVal(ev.target.value); setSecretError(''); setSecretSuccess('') }}
+                    style={{ padding: '9px 36px 9px 12px', borderRadius: 8, border: `1px solid ${border}`, background: subtle, color: text, fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+                  />
+                  <button onClick={() => setShowSecretVal(v => !v)}
+                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: 2, display: 'flex' }}>
+                    <EyeOff size={13} />
+                  </button>
+                </div>
+                {secretError && <p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>{secretError}</p>}
+                {secretSuccess && <p style={{ fontSize: 12, color: '#22c55e', margin: 0 }}>{secretSuccess}</p>}
+                <button onClick={saveSecret} disabled={secretSaving || !newSecretKey || !newSecretVal}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 0', borderRadius: 8, border: 'none', background: '#BC6045', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: secretSaving || !newSecretKey || !newSecretVal ? 0.5 : 1, width: '100%' }}>
+                  {secretSaving ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Save size={13} />}
+                  {secretSaving ? 'Saving...' : 'Save secret'}
+                </button>
+              </div>
+              <p style={{ fontSize: 12, fontWeight: 800, color: text, marginBottom: 10 }}>
+                Saved secrets {secrets.length > 0 && <span style={{ fontWeight: 400, color: muted }}>({secrets.length})</span>}
+              </p>
+              {secretsLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: muted, fontSize: 12 }}>
+                  <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> Loading...
+                </div>
+              ) : secrets.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', color: muted }}>
+                  <Key size={20} style={{ opacity: 0.2, display: 'block', margin: '0 auto 8px' }} />
+                  <p style={{ fontSize: 12, margin: 0 }}>No secrets saved yet</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {secrets.map(s => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, background: subtle, border: `1px solid ${border}` }}>
+                      <Key size={12} style={{ color: '#BC6045', flexShrink: 0 }} />
+                      <code style={{ flex: 1, fontSize: 12, fontFamily: 'monospace', color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.key_name}</code>
+                      <span style={{ fontSize: 11, color: muted }}>••••••</span>
+                      <button onClick={() => deleteSecret(s.key_name)} title="Delete"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: 2, display: 'flex' }}
+                        onMouseEnter={ev => ev.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={ev => ev.currentTarget.style.color = muted}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
