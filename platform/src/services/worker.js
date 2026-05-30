@@ -3,6 +3,7 @@ import { generateCodeStream, generateSummary, repairGeneratedCode } from './gemi
 import { buildAndDeploy } from './builder.js'
 import { sanitizeGeneratedFiles } from './fileSafety.js'
 import { runRuntimeQa } from './runtimeQa.js'
+import { getDecryptedSecrets } from './secretsService.js'
 
 // ⚠️  FIX #34 (doc): jobStore and sseConnections (in build.js) are module-level Maps.
 // This REQUIRES PM2 single-process mode (not cluster mode).
@@ -281,6 +282,13 @@ async function runJob(jobId) {
 
     emit('start', { message: 'Starting code generation...' })
 
+    // Fetch and inject project secrets — decrypted server-side, never exposed to client
+    const decryptedSecrets = await getDecryptedSecrets(job.project_id)
+    const secretKeys = Object.keys(decryptedSecrets)
+    if (secretKeys.length > 0) {
+      job.plan = { ...job.plan, secret_keys: secretKeys }
+    }
+
     const manualFiles = Array.isArray(job.plan.manual_files)
       ? sanitizeGeneratedFiles(job.plan.manual_files)
       : null
@@ -331,6 +339,7 @@ async function runJob(jobId) {
             appName: job.plan.app_name || 'App',
             faviconEmoji: job.plan.favicon_emoji || null,
             faviconUrl: job.plan.favicon_url || null,
+            secrets: decryptedSecrets,
           }
         )
         await purgeCloudflareCache(subdomain)
@@ -464,10 +473,12 @@ async function runJob(jobId) {
       }
     }
 
+    // Store complete event in conversations for history (history loader reads this)
+    // The fromHistory flag tells Editor.jsx this came from a page reload, not live SSE
     await supabase.from('conversations').insert({
       project_id: job.project_id,
       role: 'assistant',
-      content: JSON.stringify(completionData),
+      content: JSON.stringify({ ...completionData, fromHistory: true }),
       type: 'complete',
       credits_used,
       tokens_used
@@ -478,7 +489,8 @@ async function runJob(jobId) {
       .eq('id', jobId)
 
     clearTimeout(timeoutHandle)
-    emit('done', completionData)
+    // SSE done event — fromHistory is false so Editor knows this is the live result
+    emit('done', { ...completionData, fromHistory: false })
     await flushPersist(jobId)
 
   } catch (err) {
