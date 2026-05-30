@@ -424,8 +424,10 @@ async function runJob(jobId) {
     await supabase.from('projects').update({
       name: job.plan.app_name || 'My App',
       prompt: job.plan.understanding,
-      status: 'deployed',
-      subdomain
+      status: 'built',
+      subdomain,
+      latest_release: releaseNum,
+      built_at: new Date().toISOString()
     }).eq('id', job.project_id)
 
     // FIX #9: Re-fetch current credits immediately before deduction instead of using the
@@ -459,7 +461,9 @@ async function runJob(jobId) {
     })
 
     const completionData = {
-      subdomain, credits_used,
+      subdomain,
+      releaseNum,
+      published: false, credits_used,
       phase: job.plan.current_phase,
       total_phases: job.plan.total_phases,
       next_phase_description: job.plan.phases?.[job.plan.current_phase]?.description,
@@ -485,7 +489,7 @@ async function runJob(jobId) {
     })
 
     await supabase.from('build_jobs')
-      .update({ status: 'done', subdomain, credits_used })
+      .update({ status: 'done', subdomain, credits_used, latest_release: releaseNum })
       .eq('id', jobId)
 
     clearTimeout(timeoutHandle)
