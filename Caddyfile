@@ -1,0 +1,77 @@
+# /etc/caddy/Caddyfile
+# 44Gen reverse proxy + custom domain SSL
+#
+# Architecture:
+#   Caddy :80/:443  ←  all traffic
+#     ├── 44gen.com + *.44gen.com  →  Nginx:8080  (unchanged static serving)
+#     └── custom domains           →  Node.js:4000 (serves correct app via customDomainMiddleware)
+#
+# On-demand TLS: Caddy asks Node.js before issuing a cert for a custom domain.
+# Only verified domains (in custom_domains table, status=verified) get certs.
+
+{
+    # Global options
+    email support@44gen.com
+
+    on_demand_tls {
+        # Before issuing a cert for any unknown domain, ask Node.js if it's valid.
+        # Node.js checks custom_domains table — only verified domains return 200.
+        ask http://localhost:4000/internal/domain-check
+
+        # Rate limit cert issuance to prevent abuse
+        interval 2m
+        burst    5
+    }
+}
+
+# ── 44gen.com main platform ───────────────────────────────────────────────────
+44gen.com {
+    reverse_proxy localhost:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+    }
+}
+
+# ── *.44gen.com user apps ─────────────────────────────────────────────────────
+# Caddy proxies to Nginx:8080 which serves from /var/www/44gen/users/{sub}/current/
+*.44gen.com {
+    tls {
+        # Use the wildcard cert Certbot already manages for *.44gen.com
+        # Replace these paths with your actual Certbot cert paths
+        cert_file /etc/letsencrypt/live/44gen.com/fullchain.pem
+        key_file  /etc/letsencrypt/live/44gen.com/privkey.pem
+    }
+
+    reverse_proxy localhost:8080 {
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+    }
+}
+
+# ── Custom domains — on-demand TLS ───────────────────────────────────────────
+# Catch all other hostnames — these are user custom domains.
+# Caddy gets a Let's Encrypt cert automatically on first request.
+:443 {
+    tls {
+        on_demand
+    }
+
+    reverse_proxy localhost:4000 {
+        header_up X-Forwarded-Proto https
+        header_up X-Real-IP {remote_host}
+        header_up Host {host}
+    }
+}
+
+# HTTP → HTTPS redirect for custom domains
+:80 {
+    # Let Let's Encrypt HTTP challenges through
+    handle /.well-known/acme-challenge/* {
+        reverse_proxy localhost:4000
+    }
+
+    # Redirect everything else to HTTPS
+    handle {
+        redir https://{host}{uri} 301
+    }
+}
