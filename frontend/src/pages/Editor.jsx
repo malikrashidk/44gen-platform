@@ -264,8 +264,10 @@ export default function Editor() {
     let latestCode = ''
     const loaded = data.map(c => {
       if (c.type === 'complete') {
-        try { return { id: c.id, role: 'assistant', content: JSON.parse(c.content), type: 'complete' } }
-        catch { return null }
+        try {
+          const parsed = JSON.parse(c.content)
+          return { id: c.id, role: 'assistant', content: { ...parsed, fromHistory: true }, type: 'complete' }
+        } catch { return null }
       }
       if (c.type === 'code') {
         latestCode = c.content
@@ -981,7 +983,10 @@ export default function Editor() {
         addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
         setMessages(prev => [
           ...prev
-            .filter(m => !['build_stream', 'build_step', 'status', 'thought', 'code_stream', 'code_done'].includes(m.type)),
+            // Remove build progress messages AND any fromHistory complete messages
+            // (history loader added them; SSE is the authoritative live result)
+            .filter(m => !['build_stream', 'build_step', 'status', 'thought', 'code_stream', 'code_done'].includes(m.type))
+            .filter(m => !(m.type === 'complete' && m.content?.fromHistory)),
           {
             id: Date.now() + Math.random(),
             role: 'assistant',
@@ -2056,7 +2061,7 @@ ${answerText}`
       const selectedDiff = fileDiffs.find(file => file.path === selectedDiffPath) || fileDiffs[0]
       const diffRows = selectedDiff ? createLineDiff(selectedDiff.before, selectedDiff.after) : []
       const changeCount = addedFiles.length + modifiedFiles.length + removedFiles.length
-      const completionDescription = s?.description || c.plan?.understanding || 'Your latest version is built, published, and ready to review.'
+      const completionDescription = s?.message || s?.description || c.plan?.understanding || 'Your app is live.'
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
           <div style={{ marginBottom: 10 }}>
@@ -2069,10 +2074,10 @@ ${answerText}`
               {completionDescription}
             </p>
 
-            {s?.features?.length > 0 && (
+            {(s?.what_works?.length > 0 || s?.features?.length > 0) && (
               <div style={{ marginBottom: 12 }}>
                 <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>What is working now</p>
-                {s.features.slice(0, 5).map((f, i) => (
+                {(s.what_works || s.features || []).map((f, i) => (
                   <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
                     <CheckCircle2 size={12} style={{ color: '#10b981', marginTop: 2, flexShrink: 0 }} />
                     <span>{f}</span>
@@ -2081,10 +2086,10 @@ ${answerText}`
               </div>
             )}
 
-            {s?.next_steps?.length > 0 && (
+            {(s?.suggested_next?.length > 0 || s?.next_steps?.length > 0) && (
               <div style={{ marginBottom: 12 }}>
-                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>Next steps:</p>
-                {s.next_steps.slice(0, 3).map((step, i) => (
+                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>Continue building:</p>
+                {(s.suggested_next || s.next_steps || []).map((step, i) => (
                   <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
                     <ChevronRight size={12} style={{ color: '#BC6045', marginTop: 2, flexShrink: 0 }} />
                     <span>{step}</span>
