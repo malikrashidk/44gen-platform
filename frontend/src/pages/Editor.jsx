@@ -2553,7 +2553,6 @@ ${answerText}`
               </div>
             </div>
           )}
-          )}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowUserMenu(!showUserMenu)}
               style={{ width: 28, height: 28, borderRadius: '50%', background: '#BC6045', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
