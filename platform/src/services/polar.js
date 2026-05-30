@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase.js'
-import { BILLING_PLANS, planFromPolarProduct } from './billingPlans.js'
+import { BILLING_PLANS, CREDIT_PACKS, planFromPolarProduct, packFromPolarProduct } from './billingPlans.js'
 import crypto from 'node:crypto'
 
 const POLAR_API = {
@@ -29,11 +29,7 @@ function decodeWebhookSecret(secret) {
   const value = String(secret || '').trim()
   if (!value) return null
   const raw = value.startsWith('whsec_') ? value.slice(6) : value
-  try {
-    return Buffer.from(raw, 'base64')
-  } catch {
-    return Buffer.from(raw)
-  }
+  try { return Buffer.from(raw, 'base64') } catch { return Buffer.from(raw) }
 }
 
 function timingSafeEqualString(a, b) {
@@ -77,18 +73,23 @@ export function verifyPolarWebhook({ rawBody, headers, secret }) {
   ])
   const expected = `v1,${crypto.createHmac('sha256', signingSecret).update(signedPayload).digest('base64')}`
   const received = String(webhookSignature).split(' ')
-  if (!received.some(signature => timingSafeEqualString(signature, expected))) {
+  if (!received.some(sig => timingSafeEqualString(sig, expected))) {
     const err = new Error('Invalid Polar webhook signature.')
     err.status = 400
     throw err
   }
 }
 
-export async function createPolarCheckout({ user, plan, customerIpAddress }) {
+export async function createPolarCheckout({ user, plan, pack, customerIpAddress }) {
   const token = requirePolarToken()
   const appUrl = process.env.APP_URL || process.env.ALLOWED_ORIGIN || 'https://44gen.com'
   const successUrl = `${appUrl.replace(/\/$/, '')}/billing/success?checkout_id={CHECKOUT_ID}`
   const returnUrl = `${appUrl.replace(/\/$/, '')}/pricing`
+
+  const product = plan || pack
+  const metadata = plan
+    ? { user_id: user.id, plan: plan.id, credits: plan.credits, type: 'subscription' }
+    : { user_id: user.id, pack: pack.id, credits: pack.credits, type: 'pack' }
 
   const res = await fetch(`${polarBaseUrl()}/checkouts`, {
     method: 'POST',
@@ -98,20 +99,14 @@ export async function createPolarCheckout({ user, plan, customerIpAddress }) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      products: [plan.productId],
+      products: [product.productId],
       external_customer_id: user.id,
       customer_email: user.email,
       customer_ip_address: customerIpAddress || undefined,
       success_url: successUrl,
       return_url: returnUrl,
-      metadata: {
-        user_id: user.id,
-        plan: plan.id,
-        credits: plan.credits
-      },
-      customer_metadata: {
-        user_id: user.id
-      }
+      metadata,
+      customer_metadata: { user_id: user.id }
     })
   })
 
@@ -121,7 +116,6 @@ export async function createPolarCheckout({ user, plan, customerIpAddress }) {
     err.status = res.status
     throw err
   }
-
   return data
 }
 
@@ -149,12 +143,13 @@ export async function createPolarCustomerPortal({ user }) {
     err.status = res.status
     throw err
   }
-
   return data
 }
 
+// ── Webhook payload helpers ────────────────────────────────────────────────────
+
 function payloadType(payload) {
-  return payload?.type || payload?.event || payload?.name || ''
+  return String(payload?.type || payload?.event || payload?.name || '').toLowerCase()
 }
 
 function payloadData(payload) {
@@ -182,23 +177,55 @@ function productIdFromData(data) {
 }
 
 function planFromPayload(data) {
+  // Check metadata first — most reliable
   const metadataPlan = data?.metadata?.plan
   if (metadataPlan && BILLING_PLANS[metadataPlan]) return BILLING_PLANS[metadataPlan]
   return planFromPolarProduct(productIdFromData(data))
+}
+
+function packFromPayload(data) {
+  const metadataPack = data?.metadata?.pack
+  if (metadataPack && CREDIT_PACKS[metadataPack]) return CREDIT_PACKS[metadataPack]
+  return packFromPolarProduct(productIdFromData(data))
 }
 
 function subscriptionStatus(data) {
   return String(data?.status || data?.subscription?.status || '').toLowerCase()
 }
 
+// ── Profile update helpers ─────────────────────────────────────────────────────
+
 async function updateProfileForPlan({ userId, plan, polarCustomerId, polarSubscriptionId, status, currentPeriodEnd }) {
   if (!userId || !plan?.id) return
+
+  // IMPORTANT: use SQL MAX to never decrease credits on a webhook retry
+  // If somehow the webhook fires twice, the second call won't overwrite
+  // a higher credit balance the user earned from a pack purchase
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('credits, plan')
+    .eq('id', userId)
+    .single()
+
+  // Only reset credits if this is a new plan activation or renewal
+  // Don't reset if user already has MORE credits (e.g. from a pack they bought)
+  const newCredits = plan.credits
+  const existingCredits = profile?.credits ?? 0
+  const isSamePlan = profile?.plan === plan.id
+
+  // On renewal of same plan: give them the full plan credits back (they earned a new month)
+  // On upgrade: give them the new plan's credits
+  // In both cases: if they have MORE credits than the plan amount (from packs), keep the higher value
+  const creditsToSet = Math.max(newCredits, existingCredits)
+
+  // Wait — actually on renewal we SHOULD top back up to plan amount minimum
+  // but not wipe out pack credits above that. So: max(newCredits, current) is correct.
 
   await supabase
     .from('profiles')
     .update({
       plan: plan.id,
-      credits: plan.credits,
+      credits: creditsToSet,
       polar_customer_id: polarCustomerId || null,
       polar_subscription_id: polarSubscriptionId || null,
       polar_subscription_status: status || null,
@@ -206,30 +233,68 @@ async function updateProfileForPlan({ userId, plan, polarCustomerId, polarSubscr
       billing_updated_at: new Date().toISOString()
     })
     .eq('id', userId)
+
+  console.log(`[Billing] Plan updated: user=${userId} plan=${plan.id} credits=${creditsToSet} (plan grants ${newCredits}, had ${existingCredits})`)
+}
+
+async function addPackCredits({ userId, pack, polarCustomerId, orderId }) {
+  if (!userId || !pack?.credits) return
+
+  // Fetch current credits
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('credits')
+    .eq('id', userId)
+    .single()
+
+  if (!profile) {
+    console.warn(`[Billing] Pack purchase: user ${userId} not found`)
+    return
+  }
+
+  const newCredits = (profile.credits || 0) + pack.credits
+
+  await supabase
+    .from('profiles')
+    .update({
+      credits: newCredits,
+      polar_customer_id: polarCustomerId || null,
+      billing_updated_at: new Date().toISOString()
+    })
+    .eq('id', userId)
+
+  console.log(`[Billing] Credit pack applied: user=${userId} pack=${pack.id} +${pack.credits} credits → total=${newCredits}`)
 }
 
 async function downgradeToFree({ userId, polarCustomerId, polarSubscriptionId, status }) {
   if (!userId) return
-  await updateProfileForPlan({
-    userId,
-    plan: BILLING_PLANS.free,
-    polarCustomerId,
-    polarSubscriptionId,
-    status,
-    currentPeriodEnd: null
-  })
+  await supabase
+    .from('profiles')
+    .update({
+      plan: 'free',
+      credits: BILLING_PLANS.free.credits,
+      polar_customer_id: polarCustomerId || null,
+      polar_subscription_id: polarSubscriptionId || null,
+      polar_subscription_status: status || null,
+      billing_updated_at: new Date().toISOString()
+    })
+    .eq('id', userId)
+  console.log(`[Billing] Downgraded to free: user=${userId} status=${status}`)
 }
+
+// ── Main webhook handler ───────────────────────────────────────────────────────
 
 export async function handlePolarPayload(payload) {
   const type = payloadType(payload)
   const data = payloadData(payload)
   const userId = customerExternalId(data)
-  const plan = planFromPayload(data)
   const status = subscriptionStatus(data)
   const polarCustomerId = data?.customer_id || data?.customer?.id || null
   const polarSubscriptionId = data?.subscription_id || data?.subscription?.id || data?.id || null
   const currentPeriodEnd = data?.current_period_end || data?.subscription?.current_period_end || null
+  const orderId = data?.id || null
 
+  // Always log the event for debugging
   const { error: eventError } = await supabase.from('billing_events').insert({
     provider: 'polar',
     event_type: type || 'unknown',
@@ -237,23 +302,65 @@ export async function handlePolarPayload(payload) {
     user_id: userId || null,
     payload
   })
-  if (eventError && eventError.code !== '23505') throw eventError
+  // Ignore duplicate event errors (idempotency) but log others
+  if (eventError && eventError.code !== '23505') {
+    console.warn('[Billing] Failed to log billing event:', eventError.message)
+  }
 
-  if (!userId) return
+  console.log(`[Billing] Webhook received: type=${type} userId=${userId || 'unknown'}`)
 
-  if (/subscription\.(revoked|past_due)/i.test(type) || status === 'revoked') {
-    await downgradeToFree({ userId, polarCustomerId, polarSubscriptionId, status })
+  if (!userId) {
+    console.warn(`[Billing] Webhook has no user ID — cannot update profile. Type: ${type}`)
     return
   }
 
-  if (/subscription\.(created|active|updated|uncanceled)|customer\.state_changed|order\.paid/i.test(type) && plan) {
-    await updateProfileForPlan({
-      userId,
-      plan,
-      polarCustomerId,
-      polarSubscriptionId,
-      status: status || 'active',
-      currentPeriodEnd
-    })
+  // ── Subscription cancelled / revoked ──
+  if (/subscription\.(revoked|canceled|past_due)/i.test(type) || status === 'revoked') {
+    // Only fully downgrade if actually revoked (not just canceled — canceled keeps access until period end)
+    if (status === 'revoked' || /subscription\.revoked/i.test(type)) {
+      await downgradeToFree({ userId, polarCustomerId, polarSubscriptionId, status })
+    } else {
+      // Canceled but still active — just update the subscription status
+      await supabase.from('profiles').update({
+        polar_subscription_status: status,
+        billing_updated_at: new Date().toISOString()
+      }).eq('id', userId)
+      console.log(`[Billing] Subscription canceled (still active until period end): user=${userId}`)
+    }
+    return
   }
+
+  // ── Subscription created / renewed / updated ──
+  // Covers: subscription.created, subscription.updated, subscription.active,
+  //         subscription.uncanceled, order.created (initial), order.paid
+  if (/subscription\.(created|active|updated|uncanceled)|order\.(created|paid)|checkout\.updated/i.test(type)) {
+    // Determine if this is a pack or a plan purchase
+    const payloadType = data?.metadata?.type
+    
+    if (payloadType === 'pack') {
+      // One-time credit pack purchase
+      const pack = packFromPayload(data)
+      if (pack) {
+        await addPackCredits({ userId, pack, polarCustomerId, orderId })
+      } else {
+        console.warn(`[Billing] Pack purchase but couldn't identify pack. ProductId: ${productIdFromData(data)}`)
+      }
+      return
+    }
+
+    // Subscription plan purchase or renewal
+    const plan = planFromPayload(data)
+    if (plan) {
+      await updateProfileForPlan({
+        userId, plan, polarCustomerId, polarSubscriptionId,
+        status: status || 'active', currentPeriodEnd
+      })
+    } else {
+      console.warn(`[Billing] Could not identify plan from payload. Type: ${type}, ProductId: ${productIdFromData(data)}`)
+    }
+    return
+  }
+
+  // Log unhandled event types — helps diagnose issues
+  console.log(`[Billing] Unhandled webhook type: ${type} — no action taken`)
 }
