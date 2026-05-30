@@ -5,7 +5,8 @@
 	}
 }
 
-44gen.com {
+# 44gen.com — www redirects to non-www via Nginx on 8080
+44gen.com, www.44gen.com {
 	tls /etc/letsencrypt/live/44gen.com/fullchain.pem /etc/letsencrypt/live/44gen.com/privkey.pem
 	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
@@ -13,11 +14,7 @@
 	}
 }
 
-www.44gen.com {
-	tls /etc/letsencrypt/live/44gen.com/fullchain.pem /etc/letsencrypt/live/44gen.com/privkey.pem
-	redir https://44gen.com{uri} 301
-}
-
+# *.44gen.com user apps — must come after 44gen.com to avoid catching www
 *.44gen.com {
 	tls /etc/letsencrypt/live/44gen.com/fullchain.pem /etc/letsencrypt/live/44gen.com/privkey.pem
 	reverse_proxy localhost:8080 {
@@ -26,17 +23,12 @@ www.44gen.com {
 	}
 }
 
-tooltrace.io {
+tooltrace.io, www.tooltrace.io {
 	tls /etc/letsencrypt/live/tooltrace.io/fullchain.pem /etc/letsencrypt/live/tooltrace.io/privkey.pem
 	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
-}
-
-www.tooltrace.io {
-	tls /etc/letsencrypt/live/tooltrace.io/fullchain.pem /etc/letsencrypt/live/tooltrace.io/privkey.pem
-	redir https://tooltrace.io{uri} 301
 }
 
 app.tooltrace.io {
@@ -47,17 +39,12 @@ app.tooltrace.io {
 	}
 }
 
-aurixcollection.com {
+aurixcollection.com, www.aurixcollection.com {
 	tls /etc/letsencrypt/live/aurixcollection.com/fullchain.pem /etc/letsencrypt/live/aurixcollection.com/privkey.pem
 	reverse_proxy localhost:8080 {
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {remote_host}
 	}
-}
-
-www.aurixcollection.com {
-	tls /etc/letsencrypt/live/aurixcollection.com/fullchain.pem /etc/letsencrypt/live/aurixcollection.com/privkey.pem
-	redir https://aurixcollection.com{uri} 301
 }
 
 abdullah.aurixcollection.com,
@@ -66,7 +53,6 @@ ahmad.aurixcollection.com,
 malik.aurixcollection.com,
 uzair.aurixcollection.com {
 	reverse_proxy localhost:8080 {
-		header_up X-Forwarded-Proto http
 		header_up X-Real-IP {remote_host}
 	}
 }
@@ -87,6 +73,7 @@ my.44gen.com {
 	}
 }
 
+# Custom domains — on-demand TLS via Let's Encrypt
 :443 {
 	tls {
 		on_demand
@@ -98,6 +85,7 @@ my.44gen.com {
 	}
 }
 
+# HTTP catch-all — ACME challenges + redirect to HTTPS
 :80 {
 	handle /.well-known/acme-challenge/* {
 		reverse_proxy localhost:4000
