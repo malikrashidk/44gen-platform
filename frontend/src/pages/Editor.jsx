@@ -1961,7 +1961,7 @@ ${answerText}`
         return (
           <button key={msg.id} onClick={() => setMessages(prev => prev.map(m =>
             m.id === msg.id ? { ...m, content: { ...m.content, collapsed: false } } : m
-          ))}
+          ))} style={{ animation: 'msgFadeIn 0.4s ease both' }}
             style={{
               display: 'flex',
               alignItems: 'center',
