@@ -1037,23 +1037,15 @@ export default function Editor() {
         fetchProfile(user.id)
         fetchProject()
         loadProjectFiles()
-        addDetail('✅', `Live → ${event.subdomain}.44gen.com`, '#10b981')
+        addDetail('✅', 'Build ready — click Publish to go live', '#10b981')
+        // Auto-open publish panel so user sees the Publish button immediately
+        setShowPublishPanel(true)
+        loadDomains()
         setMessages(prev => [
           ...prev
-            // Remove build progress messages AND any fromHistory complete messages
-            // (history loader added them; SSE is the authoritative live result)
             .filter(m => !['build_stream', 'build_step', 'status', 'thought', 'code_stream', 'code_done'].includes(m.type))
             .filter(m => !(m.type === 'complete' && m.content?.fromHistory)),
-          {
-            id: Date.now() + Math.random(),
-            role: 'assistant',
-            type: 'build_stream',
-            content: {
-              heading: `Done · ${event.subdomain}.44gen.com`,
-              subtext: '',
-              phase: 'done'
-            }
-          },
+          // Single complete message — summary renders all detail, no redundant "Done ·" header
           { id: Date.now(), role: 'assistant', content: event, type: 'complete' }
         ])
         buildStreamMessageIdRef.current = null
@@ -2052,7 +2044,7 @@ ${answerText}`
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: `1px solid ${border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: muted }}>
-              <Zap size={11} style={{ color: '#BC6045' }} /> Est. {p.estimated_credits} credits
+              <Zap size={11} style={{ color: '#BC6045' }} /> Credits shown after build
             </div>
             {p.approved ? (
               <button onClick={() => setMessages(prev => prev.map(m =>
@@ -2107,8 +2099,6 @@ ${answerText}`
       const c = msg.content
       const s = c.summary
       const filesWritten = s?.files_written || c.files_written || []
-      const detailsOpen = Boolean(c.detailsOpen)
-      const detailsTab = c.detailsTab || 'changes'
       const changes = c.changes || {}
       const addedFiles = changes.added_files || []
       const modifiedFiles = changes.modified_files || []
@@ -2119,41 +2109,55 @@ ${answerText}`
       const diffRows = selectedDiff ? createLineDiff(selectedDiff.before, selectedDiff.after) : []
       const changeCount = addedFiles.length + modifiedFiles.length + removedFiles.length
       const completionDescription = s?.message || s?.description || c.plan?.understanding || 'Your app is live.'
+      const isPublished = c.published !== false  // legacy builds treated as published
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: text, fontWeight: 700, marginBottom: 8 }}>
-              <CheckCircle2 size={14} style={{ color: '#10b981', flexShrink: 0 }} />
-              <span>Done — {s?.title || `Phase ${c.phase} is complete`}</span>
-            </div>
 
-            <p style={{ marginBottom: 10, color: d ? '#d4d4d4' : '#3f3a35', fontSize: 13, lineHeight: 1.6 }}>
+            {/* Title — bold, no green icon */}
+            <p style={{ fontWeight: 800, fontSize: 14, color: text, margin: '0 0 8px', letterSpacing: '-0.2px' }}>
+              {s?.title || 'Build complete'}
+            </p>
+
+            {/* Natural language description */}
+            <p style={{ marginBottom: 14, color: d ? '#d4d4d4' : '#3f3a35', fontSize: 13, lineHeight: 1.65 }}>
               {completionDescription}
             </p>
 
+            {/* What's working — plain list, no icons */}
             {(s?.what_works?.length > 0 || s?.features?.length > 0) && (
-              <div style={{ marginBottom: 12 }}>
-                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>What is working now</p>
-                {(s.what_works || s.features || []).map((f, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
-                    <CheckCircle2 size={12} style={{ color: '#10b981', marginTop: 2, flexShrink: 0 }} />
-                    <span>{f}</span>
-                  </div>
-                ))}
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontWeight: 700, marginBottom: 8, fontSize: 12, color: muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>What's working</p>
+                <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {(s.what_works || s.features || []).map((f, i) => (
+                    <li key={i} style={{ color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.5 }}>{f}</li>
+                  ))}
+                </ul>
               </div>
             )}
 
+            {/* Suggested next — clickable chips that auto-send */}
             {(s?.suggested_next?.length > 0 || s?.next_steps?.length > 0) && (
-              <div style={{ marginBottom: 12 }}>
-                <p style={{ fontWeight: 700, marginBottom: 6, fontSize: 13, color: text }}>Continue building:</p>
-                {(s.suggested_next || s.next_steps || []).map((step, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 5, color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.45 }}>
-                    <ChevronRight size={12} style={{ color: '#BC6045', marginTop: 2, flexShrink: 0 }} />
-                    <span>{step}</span>
-                  </div>
-                ))}
-                <p style={{ marginTop: 7, color: muted, fontSize: 12, lineHeight: 1.45 }}>
-                  Ask me to continue when you are ready and I will build the next part.
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontWeight: 700, marginBottom: 8, fontSize: 12, color: muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>What to build next</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {(s.suggested_next || s.next_steps || []).map((step, i) => (
+                    <button key={i} onClick={() => { setPrompt(step); setTimeout(() => document.querySelector('textarea')?.focus(), 50) }}
+                      style={{ textAlign: 'left', padding: '8px 12px', borderRadius: 8, border: `1px solid ${border}`, background: subtle, color: d ? '#d4d4d4' : '#3f3a35', fontSize: 13, cursor: 'pointer', lineHeight: 1.45, fontFamily: 'inherit', transition: 'background 0.15s, border-color 0.15s' }}
+                      onMouseEnter={ev => { ev.currentTarget.style.background = d ? '#2a2a2a' : '#f0ece6'; ev.currentTarget.style.borderColor = '#BC6045' }}
+                      onMouseLeave={ev => { ev.currentTarget.style.background = subtle; ev.currentTarget.style.borderColor = border }}>
+                      {step}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Publish / Update notice if not yet published */}
+            {!isPublished && c.subdomain && (
+              <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(188,96,69,0.07)', border: '1px solid rgba(188,96,69,0.2)' }}>
+                <p style={{ margin: 0, fontSize: 12, color: d ? '#d4d4d4' : '#3f3a35', lineHeight: 1.5 }}>
+                  <strong>Ready to go live.</strong> Preview the app and click <strong>Publish</strong> when you're happy with it.
                 </p>
               </div>
             )}
@@ -2418,56 +2422,137 @@ ${answerText}`
             {darkMode ? <Sun size={13} /> : <Moon size={13} />}
           </button>
           {previewUrl && (
-            <button onClick={() => setShowPublishPanel(v => !v)}
+            <button onClick={() => { const opening = !showPublishPanel; setShowPublishPanel(v => !v); if (opening) loadDomains() }}
               style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#fff', background: 'linear-gradient(135deg,#BC6045,#9f4d38)', padding: '6px 13px', borderRadius: 9, border: 'none', cursor: 'pointer', boxShadow: '0 8px 18px rgba(188,96,69,0.22)' }}>
-              <Globe size={11} /> <span className="hide-xs">Publish</span>
+              <Globe size={11} /> <span className="hide-xs">{project?.status === "deployed" ? "Update" : "Publish"}</span>
             </button>
           )}
           {showPublishPanel && <div onClick={() => setShowPublishPanel(false)} style={{ position: 'fixed', inset: 0, zIndex: 80 }} />}
           {showPublishPanel && previewUrl && (
-            <div style={{ position: 'absolute', right: 54, top: 48, width: 360, background: surface, border: `1px solid ${border}`, borderRadius: 16, boxShadow: d ? '0 20px 70px rgba(0,0,0,0.55)' : '0 22px 70px rgba(34,28,20,0.16)', zIndex: 100, overflow: 'hidden' }}>
-              <div style={{ padding: 18, borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ position: 'absolute', right: 54, top: 48, width: 380, background: surface, border: `1px solid ${border}`, borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', zIndex: 100, overflow: 'hidden' }}>
+              {/* Header */}
+              <div style={{ padding: '16px 18px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: text }}>{project?.status === 'deployed' ? 'Published' : 'Draft'}</h3>
-                  <p style={{ fontSize: 12, color: muted, marginTop: 4 }}>{project?.status === 'deployed' ? 'Your app is live and shareable.' : 'Publish after the next successful build.'}</p>
+                  <h3 style={{ fontSize: 15, fontWeight: 800, margin: 0, color: text }}>
+                    {project?.status === 'deployed' ? 'Your app is live' : 'Ready to publish'}
+                  </h3>
+                  <p style={{ fontSize: 12, color: muted, marginTop: 3, margin: '3px 0 0' }}>
+                    {project?.status === 'deployed'
+                      ? 'A new version is ready — publish to update the live URL.'
+                      : 'Preview looks good? Click Publish to make it live.'}
+                  </p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid rgba(16,185,129,0.22)', background: 'rgba(16,185,129,0.08)', color: '#059669', borderRadius: 10, padding: '7px 10px', fontSize: 12, fontWeight: 800 }}>
-                  <CheckCircle2 size={13} /> Live
-                </div>
+                {project?.status === 'deployed' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#059669', background: 'rgba(5,150,105,0.1)', border: '1px solid rgba(5,150,105,0.2)', borderRadius: 100, padding: '4px 10px', flexShrink: 0 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} /> Live
+                  </div>
+                )}
               </div>
-              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* URL row */}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: text }}>Website URL</span>
-                    <button disabled title="Coming soon" style={{ display: 'flex', alignItems: 'center', gap: 5, color: muted, background: 'none', border: 'none', fontSize: 12, cursor: 'default', opacity: 0.65 }}>
-                      <Globe size={12} /> Custom domain soon
-                    </button>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: text }}>44Gen URL</span>
                   </div>
-                  <button onClick={copyPreviewUrl} style={{ width: '100%', minHeight: 48, borderRadius: 12, border: `1px solid ${border}`, background: d ? '#111' : '#fbfaf8', color: text, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '0 13px', cursor: 'pointer', fontSize: 13 }}>
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewUrl.replace('https://', '')}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: copiedUrl ? '#059669' : muted, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
-                      {copiedUrl ? <CheckCircle2 size={14} /> : <Copy size={14} />} {copiedUrl ? 'Copied' : 'Copy'}
+                  <button onClick={copyPreviewUrl} style={{ width: '100%', minHeight: 44, borderRadius: 10, border: `1px solid ${border}`, background: subtle, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', gap: 8 }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12, color: text }}>{previewUrl.replace('https://', '')}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: copiedUrl ? '#059669' : muted, fontSize: 12, flexShrink: 0 }}>
+                      {copiedUrl ? <CheckCircle2 size={13} /> : <Copy size={13} />} {copiedUrl ? 'Copied' : 'Copy'}
                     </span>
                   </button>
                 </div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 12, background: subtle, border: `1px solid ${border}` }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 10, background: surface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9f4d38', border: `1px solid ${border}` }}>
-                    <Shield size={17} />
+
+                {/* Custom domain */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: text }}>Custom domain</span>
+                    {!showDomainInput && (
+                      <button onClick={() => setShowDomainInput(true)} style={{ fontSize: 11, color: '#BC6045', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}>
+                        + Add domain
+                      </button>
+                    )}
+                  </div>
+                  {showDomainInput ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <input
+                        placeholder="yourdomain.com"
+                        value={domainInput}
+                        onChange={ev => { setDomainInput(ev.target.value); setDomainError('') }}
+                        style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${border}`, background: subtle, color: text, fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+                        autoFocus
+                      />
+                      {domainError && <p style={{ fontSize: 11, color: '#ef4444', margin: 0 }}>{domainError}</p>}
+                      <div style={{ display: 'flex', gap: 7 }}>
+                        <button onClick={addCustomDomain} disabled={domainSaving || !domainInput.trim()}
+                          style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: '#BC6045', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: domainSaving || !domainInput.trim() ? 0.5 : 1 }}>
+                          {domainSaving ? 'Saving...' : 'Add'}
+                        </button>
+                        <button onClick={() => { setShowDomainInput(false); setDomainInput(''); setDomainError('') }}
+                          style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${border}`, background: 'none', color: muted, fontSize: 12, cursor: 'pointer' }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : domains.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {domains.map(dom => (
+                        <div key={dom.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: subtle, border: `1px solid ${border}` }}>
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: dom.status === 'verified' ? '#10b981' : '#f59e0b', flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 12, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dom.domain}</span>
+                          <span style={{ fontSize: 10, color: dom.status === 'verified' ? '#059669' : '#d97706', fontWeight: 700, flexShrink: 0 }}>
+                            {dom.status === 'verified' ? 'Verified' : 'Pending DNS'}
+                          </span>
+                          {dom.status === 'pending' && (
+                            <button onClick={() => verifyDomain(dom)} style={{ fontSize: 10, color: '#BC6045', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0, flexShrink: 0 }}>
+                              Verify
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {domainInstructions && (
+                        <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(188,96,69,0.06)', border: '1px solid rgba(188,96,69,0.18)', fontSize: 11, color: d ? '#d4d4d4' : '#3f3a35', lineHeight: 1.6 }}>
+                          <p style={{ fontWeight: 700, margin: '0 0 6px' }}>Add these DNS records:</p>
+                          <p style={{ margin: '0 0 3px' }}>TXT <code style={{ background: 'rgba(0,0,0,0.08)', padding: '1px 4px', borderRadius: 3 }}>_44gen-verify.{domainInstructions.step1?.name?.split('.').slice(1).join('.')}</code></p>
+                          <p style={{ margin: '0 0 3px', wordBreak: 'break-all' }}>Value: <code style={{ background: 'rgba(0,0,0,0.08)', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>{domainInstructions.step1?.value}</code></p>
+                          <p style={{ margin: '6px 0 3px' }}>CNAME <code style={{ background: 'rgba(0,0,0,0.08)', padding: '1px 4px', borderRadius: 3 }}>www</code> → <code style={{ background: 'rgba(0,0,0,0.08)', padding: '1px 4px', borderRadius: 3 }}>{domainInstructions.step2?.value}</code></p>
+                          <p style={{ margin: '6px 0 0', color: muted }}>DNS can take up to 48h. Click Verify once records are added.</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 12, color: muted, margin: 0 }}>No custom domains added yet.</p>
+                  )}
+                </div>
+
+                {/* Visibility */}
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 12, borderRadius: 10, background: subtle, border: `1px solid ${border}` }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: surface, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Shield size={16} style={{ color: muted }} />
                   </div>
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 800, color: text, margin: 0 }}>Public</p>
-                    <p style={{ fontSize: 12, color: muted, marginTop: 2 }}>Anyone with the URL can view this website.</p>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: text, margin: 0 }}>Public</p>
+                    <p style={{ fontSize: 11, color: muted, marginTop: 2, margin: '2px 0 0' }}>Anyone with the link can view your app.</p>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9 }}>
-                  <button disabled title="Coming soon" style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: subtle, color: muted, fontSize: 13, fontWeight: 700, cursor: 'default', opacity: 0.72 }}>Security soon</button>
-                  <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: surface, color: text, fontSize: 13, fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>Open site</a>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `1px solid ${border}`, background: 'none', color: text, fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                    <ExternalLink size={12} /> Open
+                  </a>
+                  <button onClick={handlePublish} disabled={publishLoading}
+                    style={{ flex: 2, padding: '10px 0', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#d18a74,#BC6045)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: publishLoading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    {publishLoading
+                      ? <><Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> Publishing...</>
+                      : project?.status === 'deployed' ? '⬆ Update live' : '🚀 Publish'}
+                  </button>
                 </div>
-                <div style={{ background: 'linear-gradient(135deg,#d18a74,#BC6045)', color: '#fff', borderRadius: 10, padding: '10px 12px', textAlign: 'center', fontSize: 13, fontWeight: 800 }}>
-                  Up to date
-                </div>
+                {publishError && <p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>{publishError}</p>}
               </div>
             </div>
+          )}
           )}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setShowUserMenu(!showUserMenu)}
@@ -2643,7 +2728,7 @@ ${answerText}`
                 </div>
               </div>
               <p style={{ fontSize: 11, color: d ? '#444' : '#bbb', textAlign: 'center', marginTop: 5 }}>
-                Plan ~0.5 credits · Build cost shown in plan
+                Planning uses ~0.5 cr · Build cost depends on app size
               </p>
             </div>
           </div>
