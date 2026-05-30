@@ -15,6 +15,7 @@ import githubRoute from './routes/github.js'
 import { billingRouter, polarWebhookHandler } from './routes/billing.js'
 import secretsRoute from './routes/secrets.js'
 import domainsRoute from './routes/domains.js'
+import { customDomainMiddleware, domainCheckHandler } from './middleware/customDomain.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -65,6 +66,14 @@ app.use('/api/domains', domainsRoute)
 app.use('/api/billing', billingRouter)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', platform: '44gen' }))
+
+// Caddy asks this before issuing a TLS cert for a custom domain
+// Must be fast and unauthenticated — Caddy calls it internally
+app.get('/internal/domain-check', domainCheckHandler)
+
+// Serve static files for verified custom domains
+// Must come AFTER /api/ routes so API calls still work
+app.use(customDomainMiddleware)
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }))
 
