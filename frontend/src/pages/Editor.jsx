@@ -1840,7 +1840,7 @@ ${answerText}`
       (() => {
         const error = makeErrorContent(msg.content)
         return (
-          <div key={msg.id} style={{ background: d ? 'rgba(188,96,69,0.12)' : 'rgba(188,96,69,0.08)', border: '1px solid rgba(188,96,69,0.22)', borderRadius: 12, padding: '11px 12px', fontSize: 13 }}>
+          <div key={msg.id} style={{ background: d ? 'rgba(188,96,69,0.12)' : 'rgba(188,96,69,0.08)', animation: 'msgFadeIn 0.35s ease both', border: '1px solid rgba(188,96,69,0.22)', borderRadius: 12, padding: '11px 12px', fontSize: 13 }}>
             <div style={{ display: 'flex', gap: 8, color: text, marginBottom: 8, lineHeight: 1.45 }}>
               <AlertCircle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
               <span>{error.message}</span>
@@ -2118,7 +2118,7 @@ ${answerText}`
       const isPublished = c.published !== false  // legacy builds treated as published
       return (
         <div key={msg.id} style={{ fontSize: 13 }}>
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 10, animation: 'msgFadeIn 0.5s ease both' }}>
 
             {/* Title — bold, no green icon */}
             <p style={{ fontWeight: 800, fontSize: 14, color: text, margin: '0 0 8px', letterSpacing: '-0.2px' }}>
@@ -2136,7 +2136,7 @@ ${answerText}`
                 <p style={{ fontWeight: 700, marginBottom: 8, fontSize: 12, color: muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>What's working</p>
                 <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {(s.what_works || s.features || []).map((f, i) => (
-                    <li key={i} style={{ color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.5 }}>{f}</li>
+                    <li key={i} style={{ color: d ? '#d4d4d4' : '#444', fontSize: 13, lineHeight: 1.5, animation: `msgFadeIn 0.3s ease ${i * 0.05}s both` }}>{f}</li>
                   ))}
                 </ul>
               </div>
@@ -2353,7 +2353,7 @@ ${answerText}`
 
     // Regular user/assistant message
     return (
-      <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+      <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', animation: 'msgFadeIn 0.35s ease both' }}>
         <div style={{
           maxWidth: '85%', borderRadius: 14, padding: msg.role === 'user' ? '9px 13px' : '2px 2px', fontSize: 13, lineHeight: 1.5,
           background: msg.role === 'user' ? userBubble : 'transparent',
