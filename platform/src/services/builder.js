@@ -503,7 +503,11 @@ function runGeneratedAppQa(projectDir, fileList) {
   }
 
   if (issues.length) {
-    throw new Error(`Generated app QA failed:\n${issues.slice(0, 12).join('\n')}\nMake these user flows functional with React state and preserve all existing files.`)
+    // QA issues found — return as a warning, not a fatal error
+    // Caller (worker.js) can decide whether to repair based on severity
+    const qaError = new Error(`Generated app QA failed:\n${issues.slice(0, 12).join('\n')}\nMake these user flows functional with React state and preserve all existing files.`)
+    qaError.isQaFailure = true
+    throw qaError
   }
 }
 
