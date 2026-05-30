@@ -3,11 +3,9 @@ import { supabase } from '../lib/supabase.js'
 import { generatePlan, isTemporaryGeminiError } from '../services/gemini.js'
 import { requireAuth } from '../middleware/auth.js'
 
-// #38: Validate UUID format before passing to Supabase to avoid DB errors on malformed input
 function isValidUUID(str) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
 }
-
 
 const router = Router()
 
@@ -25,7 +23,21 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(402).json({ error: 'Insufficient credits' })
 
   try {
-    const { plan, tokens_used } = await generatePlan(prompt)
+    // Fetch existing project files so the planner understands what's already built.
+    // This is critical for feature planning — the AI plans only the delta, not the whole app.
+    let existingFiles = []
+    if (projectId) {
+      const { data: fileRows } = await supabase
+        .from('project_files')
+        .select('file_path, content')
+        .eq('project_id', projectId)
+        .order('file_path')
+      if (fileRows?.length) {
+        existingFiles = fileRows.map(f => ({ path: f.file_path, content: f.content }))
+      }
+    }
+
+    const { plan, tokens_used } = await generatePlan(prompt, existingFiles)
     const credits_used = parseFloat((tokens_used / 10000).toFixed(2))
 
     const { data: updated } = await supabase
@@ -57,7 +69,7 @@ router.post('/', requireAuth, async (req, res) => {
         total_phases: plan.total_phases,
         status: 'pending',
         credits_used,
-        tokens_used
+        tokens_used,
       })
     }
 
@@ -67,7 +79,7 @@ router.post('/', requireAuth, async (req, res) => {
     if (isTemporaryGeminiError(error)) {
       return res.status(503).json({
         error: 'AI is busy right now. Please try again in a moment.',
-        retryable: true
+        retryable: true,
       })
     }
     res.status(500).json({ error: 'Failed to generate plan', retryable: true })
