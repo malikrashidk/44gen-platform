@@ -277,6 +277,19 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
   const fileNames = fileList.map(f => f.path).join(', ')
   console.log(`[Builder] Wrote ${fileList.length} file(s): ${fileNames}`)
 
+  // Write .env file with decrypted project secrets as VITE_ env vars
+  // These are available in generated code as import.meta.env.VITE_KEY_NAME
+  const envPath = path.join(projectDir, '.env')
+  const secrets = meta.secrets || {}
+  const secretKeys = Object.keys(secrets)
+  if (secretKeys.length > 0) {
+    const envContent = secretKeys
+      .map(k => `VITE_${k}=${String(secrets[k]).replace(/\n/g, '\\n')}`)
+      .join('\n')
+    fs.writeFileSync(envPath, envContent, { mode: 0o600 })
+    console.log(`[Builder] Wrote .env with ${secretKeys.length} secret(s) for ${path.basename(projectDir)}`)
+  }
+
   try {
     emit('building', 'Building with Vite...')
     await runCommand('npm', ['run', 'build'], projectDir, (line) => {
@@ -292,6 +305,9 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
   } catch (err) {
     try { fs.rmSync(projectDir, { recursive: true, force: true }) } catch {}
     throw err
+  } finally {
+    // Always remove .env after build — secrets must not persist on disk
+    try { if (fs.existsSync(envPath)) fs.unlinkSync(envPath) } catch {}
   }
 
   emit('deploying', 'Going live...')
