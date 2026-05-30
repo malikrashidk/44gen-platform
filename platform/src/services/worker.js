@@ -329,9 +329,10 @@ async function runJob(jobId) {
 
     // Build with repair loop
     let subdomain
+    let releaseNum = 1
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
       try {
-        subdomain = await buildAndDeploy(
+        const buildResult = await buildAndDeploy(
           job.project_id,
           files,
           (progress) => emit(progress.type, { message: progress.message }),
@@ -342,6 +343,8 @@ async function runJob(jobId) {
             secrets: decryptedSecrets,
           }
         )
+        subdomain = buildResult.subdomain
+        releaseNum = buildResult.releaseNum
         await purgeCloudflareCache(subdomain)
 
         // Wire runtimeQa — run a headless click-through after successful build.
@@ -358,6 +361,12 @@ async function runJob(jobId) {
 
         break
       } catch (buildErr) {
+        // QA failures about placeholder text are unreliable — skip repair for those
+        // Only repair actual Vite build errors (syntax errors, missing imports, etc.)
+        if (buildErr.isQaFailure) {
+          console.warn(`[Worker] QA check flagged issues but build succeeded — skipping repair:`, buildErr.message.slice(0, 200))
+          throw buildErr  // will be caught and shown as a warning
+        }
         if (attempt >= MAX_REPAIR_ATTEMPTS || !isRepairableBuildError(buildErr)) throw buildErr
 
         const repairAttempt = attempt + 1
