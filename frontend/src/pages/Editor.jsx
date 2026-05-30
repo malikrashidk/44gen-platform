@@ -352,6 +352,65 @@ export default function Editor() {
     } catch {}
   }
 
+  const handlePublish = async () => {
+    if (!projectId || !sessionRef.current?.access_token) return
+    setPublishLoading(true); setPublishError('')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionRef.current.access_token}` },
+        body: JSON.stringify({ release_num: project?.latest_release })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Publish failed')
+      await fetchProject()
+      setShowPublishPanel(false)
+    } catch (err) { setPublishError(err.message) }
+    setPublishLoading(false)
+  }
+
+  const loadDomains = async () => {
+    if (!projectId || !sessionRef.current?.access_token) return
+    try {
+      const res = await fetch(`${API}/api/domains/${projectId}`, {
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (res.ok) setDomains(data.domains || [])
+    } catch {}
+  }
+
+  const addCustomDomain = async () => {
+    const domain = domainInput.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()
+    if (!domain) { setDomainError('Enter a domain name'); return }
+    setDomainSaving(true); setDomainError(''); setDomainInstructions(null)
+    try {
+      const res = await fetch(`${API}/api/domains/${projectId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionRef.current.access_token}` },
+        body: JSON.stringify({ domain })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to add domain')
+      setDomainInstructions(data.instructions)
+      setDomainInput(''); setShowDomainInput(false)
+      await loadDomains()
+    } catch (err) { setDomainError(err.message) }
+    setDomainSaving(false)
+  }
+
+  const verifyDomain = async (dom) => {
+    try {
+      const res = await fetch(`${API}/api/domains/${projectId}/${dom.id}/verify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionRef.current.access_token}` }
+      })
+      const data = await res.json()
+      if (data.verified) { await loadDomains(); setDomainInstructions(null) }
+      else setDomainError(data.message || 'Not verified yet. Check DNS records and try again.')
+    } catch {}
+  }
+
   const loadProjectFiles = async () => {
     if (!sessionRef.current?.access_token) return
     setCodeFilesLoading(true)
