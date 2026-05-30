@@ -20,7 +20,7 @@ export function isTemporaryGeminiError(err) {
     /failed to parse stream|parse stream/i.test(message)
 }
 
-async function withRetry(fn, retries = 4, delayMs = 1200) {
+async function withRetry(fn, retries = 6, delayMs = 1500) {
   for (let i = 0; i <= retries; i++) {
     try {
       return await fn()
