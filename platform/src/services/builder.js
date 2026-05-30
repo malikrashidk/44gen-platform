@@ -223,7 +223,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 //   files: string                                     (single App.jsx, backward compat)
 export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
   const subdomain = `app-${projectId.slice(0, 8)}`
-  const projectDir = path.join(USERS_DIR, subdomain)
+  const appRoot = path.join(USERS_DIR, subdomain)          // /var/www/44gen/users/app-{id}
+  const releasesDir = path.join(appRoot, 'releases')       // .../releases/
+  const currentLink = path.join(appRoot, 'current')        // .../current -> symlink
+
+  // Determine next release number
+  let releaseNum = 1
+  if (fs.existsSync(releasesDir)) {
+    const existing = fs.readdirSync(releasesDir)
+      .map(n => parseInt(n)).filter(n => !isNaN(n)).sort((a, b) => a - b)
+    if (existing.length) releaseNum = existing[existing.length - 1] + 1
+  }
+  fs.mkdirSync(releasesDir, { recursive: true })
+
+  const releaseDir = path.join(releasesDir, String(releaseNum))
+  const projectDir = releaseDir   // Vite builds inside the release dir
 
   // Normalize to array
   const fileList = sanitizeGeneratedFiles(Array.isArray(files)
@@ -310,8 +324,47 @@ export async function buildAndDeploy(projectId, files, onProgress, meta = {}) {
     try { if (fs.existsSync(envPath)) fs.unlinkSync(envPath) } catch {}
   }
 
-  emit('deploying', 'Going live...')
-  return subdomain
+  // Build succeeded — dist is ready at releaseDir/dist
+  // DO NOT symlink current yet — that happens only when user clicks Publish
+  // Return the release info so worker.js can store it
+  emit('ready', `Release v${releaseNum} ready — click Publish to go live`)
+  return { subdomain, releaseNum, releaseDir }
+}
+
+// Called when user clicks Publish — atomically swaps current symlink to the new release
+export function publishRelease(projectId, releaseNum) {
+  const subdomain = `app-${projectId.slice(0, 8)}`
+  const appRoot = path.join(USERS_DIR, subdomain)
+  const releasesDir = path.join(appRoot, 'releases')
+  const currentLink = path.join(appRoot, 'current')
+  const releaseDistDir = path.join(releasesDir, String(releaseNum), 'dist')
+
+  if (!fs.existsSync(releaseDistDir)) {
+    throw Object.assign(new Error(`Release ${releaseNum} dist not found`), { status: 404 })
+  }
+
+  // Atomic symlink swap: write to temp then rename
+  const tmpLink = currentLink + '.tmp'
+  try { fs.unlinkSync(tmpLink) } catch {}
+  fs.symlinkSync(releaseDistDir, tmpLink)
+  fs.renameSync(tmpLink, currentLink)
+
+  console.log(`[Builder] Published release v${releaseNum} for ${subdomain}`)
+  return { subdomain, releaseNum }
+}
+
+// Clean up old releases, keeping the last N
+export function pruneReleases(projectId, keepCount = 5) {
+  const subdomain = `app-${projectId.slice(0, 8)}`
+  const releasesDir = path.join(USERS_DIR, subdomain, 'releases')
+  if (!fs.existsSync(releasesDir)) return
+  const nums = fs.readdirSync(releasesDir)
+    .map(n => parseInt(n)).filter(n => !isNaN(n)).sort((a, b) => a - b)
+  const toDelete = nums.slice(0, Math.max(0, nums.length - keepCount))
+  for (const n of toDelete) {
+    try { fs.rmSync(path.join(releasesDir, String(n)), { recursive: true, force: true }) } catch {}
+  }
+  if (toDelete.length) console.log(`[Builder] Pruned releases for ${subdomain}: removed ${toDelete.join(', ')}`)
 }
 
 async function ensureBuildTemplate(onProgress) {
