@@ -22,35 +22,37 @@ export const BILLING_PLANS = {
   }
 }
 
-// ── Credit packs (one-time purchases, available to Pro and Business users) ────
-// Pack credits add on top of existing credits and never reset monthly.
-// Add POLAR_PACK_50_PRODUCT_ID, POLAR_PACK_150_PRODUCT_ID, POLAR_PACK_300_PRODUCT_ID
-// to your .env after creating them as one-time products in Polar.
+// ── Credit packs (one-time purchases, Pro and Business users only) ─────────────
+// Add POLAR_PACK_50_PRODUCT_ID etc. to .env after creating in Polar as one-time products.
 export const CREDIT_PACKS = {
   pack_50: {
     id: 'pack_50',
     label: '50 Credits',
     credits: 50,
-    price: 9.90,
-    productEnv: 'POLAR_PACK_50_PRODUCT_ID',
-    description: 'Top up 50 credits — great for a few extra builds'
+    price: 10,
+    productEnv: 'POLAR_PACK_50_PRODUCT_ID'
   },
-  pack_150: {
-    id: 'pack_150',
-    label: '150 Credits',
-    credits: 150,
-    price: 24.90,
-    productEnv: 'POLAR_PACK_150_PRODUCT_ID',
-    description: 'Top up 150 credits — best value for active builders',
+  pack_100: {
+    id: 'pack_100',
+    label: '100 Credits',
+    credits: 100,
+    price: 20,
+    productEnv: 'POLAR_PACK_100_PRODUCT_ID',
     popular: true
   },
-  pack_300: {
-    id: 'pack_300',
-    label: '300 Credits',
-    credits: 300,
-    price: 44.90,
-    productEnv: 'POLAR_PACK_300_PRODUCT_ID',
-    description: 'Top up 300 credits — for heavy usage or team projects'
+  pack_250: {
+    id: 'pack_250',
+    label: '250 Credits',
+    credits: 250,
+    price: 50,
+    productEnv: 'POLAR_PACK_250_PRODUCT_ID'
+  },
+  pack_500: {
+    id: 'pack_500',
+    label: '500 Credits',
+    credits: 500,
+    price: 100,
+    productEnv: 'POLAR_PACK_500_PRODUCT_ID'
   }
 }
 
@@ -94,13 +96,8 @@ export function packFromPolarProduct(productId) {
   ) || null
 }
 
-// Returns all packs that have a product ID configured
 export function getAvailablePacks() {
-  return Object.values(CREDIT_PACKS).filter(pack =>
-    pack.productEnv && process.env[pack.productEnv]
-  ).map(pack => ({
-    ...pack,
-    productId: process.env[pack.productEnv],
-    available: true
-  }))
+  return Object.values(CREDIT_PACKS)
+    .filter(pack => pack.productEnv && process.env[pack.productEnv])
+    .map(pack => ({ ...pack, productId: process.env[pack.productEnv] }))
 }
