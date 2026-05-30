@@ -3009,7 +3009,6 @@ ${answerText}`
               )}
             </div>
           )}
-        </div>
 
           {activeTab === 'secrets' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
