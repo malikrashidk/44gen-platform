@@ -1854,10 +1854,16 @@ ${answerText}`
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {error.retryable && (
                 <button onClick={() => {
-                  if (error.retryAction === 'prompt' && error.retryPrompt) submitPromptText(error.retryPrompt)
-                  else if (error.retryAction === 'plan' && lastBuildPlanRef.current) startBuild(lastBuildPlanRef.current)
-                  else if (error.retryPrompt) startDirectBuild(error.retryPrompt)
-                  else handleRetry()
+                  if (lastBuildPlanRef.current) {
+                    buildStartedRef.current = false
+                    startBuild(lastBuildPlanRef.current)
+                  } else if (error.retryAction === 'prompt' && error.retryPrompt) {
+                    submitPromptText(error.retryPrompt)
+                  } else if (error.retryPrompt) {
+                    startDirectBuild(error.retryPrompt)
+                  } else {
+                    handleRetry()
+                  }
                 }}
                   disabled={loading}
                   style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#fff', background: '#BC6045', border: '1px solid rgba(188,96,69,0.25)', padding: '6px 10px', borderRadius: 7, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1, fontWeight: 800 }}>
